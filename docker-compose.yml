@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: collab_postgres
+    environment:
+      POSTGRES_USER: collab_user
+      POSTGRES_PASSWORD: collab_password
+      POSTGRES_DB: collab_code_editor
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: collab_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  server:
+    build:
+      context: ./server
+    container_name: collab_server
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./server/.env
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+
+  ai-service:
+    build:
+      context: ./ai-service
+    container_name: collab_ai_service
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./ai-service/.env
+    volumes:
+      - ./ai-service:/app
+      - chroma_data:/app/chroma_data
+
+  client:
+    build:
+      context: ./client
+    container_name: collab_client
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+      - ai-service
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:

@@ -1,0 +1,24 @@
+{
+  "name": "collab-code-editor-client",
+  "version": "1.0.0",
+  "description": "React frontend for real-time collaborative code editor",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.2",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.28.4",
+    "@vitejs/plugin-react": "^4.3.1",
+    "axios": "^1.7.7",
+    "codemirror": "^6.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.3"
+  }
+}

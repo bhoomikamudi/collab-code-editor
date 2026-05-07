@@ -3,6 +3,7 @@ const cors = require("cors");
 require("dotenv").config();
 
 const authRoutes = require("./authRoutes");
+const documentRoutes = require("./documentRoutes");
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/auth", authRoutes);
+app.use("/documents", documentRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

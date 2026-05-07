@@ -29,18 +29,24 @@ ws.on("message", (data) => {
     ws.send(
       JSON.stringify({
         type: "OPERATION",
-        revision: 0,
+        revision: message.revision,
         operation: {
           type: "insert",
           position: 0,
-          text: "// test operation\n"
+          text: "// test operation from OT engine\n"
         }
       })
     );
   }
 
   if (message.type === "OPERATION_ACK") {
-    console.log("Operation acknowledged");
+    console.log("Operation acknowledged at revision:", message.revision);
+    console.log("Updated document content:", message.document.content);
+    ws.close();
+  }
+
+  if (message.type === "ERROR") {
+    console.error("Server returned error:", message.error);
     ws.close();
   }
 });

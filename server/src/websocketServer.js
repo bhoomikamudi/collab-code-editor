@@ -1,6 +1,13 @@
 const WebSocket = require("ws");
 const jwt = require("jsonwebtoken");
 const { query } = require("./db");
+const {
+  getOperationCount,
+  getOperationsSince,
+  appendOperation
+} = require("./operationStore");
+const { applyOperation, transformAgainstHistory } = require("./otEngine");
+const { getDocumentById, updateDocumentContent } = require("./documentStore");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -46,15 +53,118 @@ async function canAccessDocument(documentId, userId) {
   return result.rows.length > 0;
 }
 
-async function getDocument(documentId) {
-  const result = await query(
-    `SELECT id, title, content, updated_at
-     FROM documents
-     WHERE id = $1`,
-    [documentId]
+async function handleJoinDocument(ws, message) {
+  const { documentId, token } = message;
+
+  if (!documentId || !token) {
+    return sendJson(ws, {
+      type: "ERROR",
+      error: "documentId and token are required"
+    });
+  }
+
+  const decoded = jwt.verify(token, JWT_SECRET);
+  const hasAccess = await canAccessDocument(documentId, decoded.userId);
+
+  if (!hasAccess) {
+    return sendJson(ws, {
+      type: "ERROR",
+      error: "You do not have access to this document"
+    });
+  }
+
+  const document = await getDocumentById(documentId);
+  const revision = await getOperationCount(documentId);
+
+  ws.user = decoded;
+  ws.documentId = documentId;
+
+  const room = getRoom(documentId);
+  room.add(ws);
+
+  sendJson(ws, {
+    type: "DOCUMENT_JOINED",
+    document,
+    revision
+  });
+
+  broadcastToRoom(documentId, ws, {
+    type: "USER_JOINED",
+    user: {
+      userId: decoded.userId,
+      email: decoded.email
+    }
+  });
+}
+
+async function handleOperation(ws, message) {
+  if (!ws.user || !ws.documentId) {
+    return sendJson(ws, {
+      type: "ERROR",
+      error: "Join a document before sending operations"
+    });
+  }
+
+  if (!Number.isInteger(message.revision) || message.revision < 0) {
+    return sendJson(ws, {
+      type: "ERROR",
+      error: "A valid revision number is required"
+    });
+  }
+
+  const documentId = ws.documentId;
+  const clientRevision = message.revision;
+
+  const historySinceClientRevision = await getOperationsSince(
+    documentId,
+    clientRevision
   );
 
-  return result.rows[0];
+  const transformedOperation = transformAgainstHistory(
+    message.operation,
+    historySinceClientRevision
+  );
+
+  const currentDocument = await getDocumentById(documentId);
+  const updatedContent = applyOperation(
+    currentDocument.content,
+    transformedOperation
+  );
+
+  const updatedDocument = await updateDocumentContent(documentId, updatedContent);
+
+  const serverRevisionBeforeAppend = await getOperationCount(documentId);
+  const operationRecord = {
+    revision: serverRevisionBeforeAppend,
+    operation: transformedOperation,
+    user: {
+      userId: ws.user.userId,
+      email: ws.user.email
+    },
+    createdAt: new Date().toISOString()
+  };
+
+  const serverRevisionAfterAppend = await appendOperation(
+    documentId,
+    operationRecord
+  );
+
+  const payload = {
+    type: "REMOTE_OPERATION",
+    documentId,
+    operation: transformedOperation,
+    revision: serverRevisionAfterAppend,
+    user: operationRecord.user
+  };
+
+  broadcastToRoom(documentId, ws, payload);
+
+  return sendJson(ws, {
+    type: "OPERATION_ACK",
+    revision: serverRevisionAfterAppend,
+    operation: transformedOperation,
+    document: updatedDocument
+  });
 }
 
 function setupWebSocketServer(server) {
@@ -74,75 +184,13 @@ function setupWebSocketServer(server) {
         const message = JSON.parse(rawMessage.toString());
 
         if (message.type === "JOIN_DOCUMENT") {
-          const { documentId, token } = message;
-
-          if (!documentId || !token) {
-            return sendJson(ws, {
-              type: "ERROR",
-              error: "documentId and token are required"
-            });
-          }
-
-          const decoded = jwt.verify(token, JWT_SECRET);
-          const hasAccess = await canAccessDocument(documentId, decoded.userId);
-
-          if (!hasAccess) {
-            return sendJson(ws, {
-              type: "ERROR",
-              error: "You do not have access to this document"
-            });
-          }
-
-          const document = await getDocument(documentId);
-
-          ws.user = decoded;
-          ws.documentId = documentId;
-
-          const room = getRoom(documentId);
-          room.add(ws);
-
-          sendJson(ws, {
-            type: "DOCUMENT_JOINED",
-            document,
-            revision: 0
-          });
-
-          broadcastToRoom(documentId, ws, {
-            type: "USER_JOINED",
-            user: {
-              userId: decoded.userId,
-              email: decoded.email
-            }
-          });
-
+          await handleJoinDocument(ws, message);
           return;
         }
 
         if (message.type === "OPERATION") {
-          if (!ws.user || !ws.documentId) {
-            return sendJson(ws, {
-              type: "ERROR",
-              error: "Join a document before sending operations"
-            });
-          }
-
-          const payload = {
-            type: "REMOTE_OPERATION",
-            documentId: ws.documentId,
-            operation: message.operation,
-            revision: message.revision || 0,
-            user: {
-              userId: ws.user.userId,
-              email: ws.user.email
-            }
-          };
-
-          broadcastToRoom(ws.documentId, ws, payload);
-
-          return sendJson(ws, {
-            type: "OPERATION_ACK",
-            revision: message.revision || 0
-          });
+          await handleOperation(ws, message);
+          return;
         }
 
         return sendJson(ws, {

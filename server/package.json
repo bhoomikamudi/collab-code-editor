@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "init-db": "node src/initDb.js"
+    "init-db": "node src/initDb.js",
+    "test-ws": "node src/testWebSocket.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

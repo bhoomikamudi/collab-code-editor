@@ -1,9 +1,11 @@
+const http = require("http");
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
 const authRoutes = require("./authRoutes");
 const documentRoutes = require("./documentRoutes");
+const { setupWebSocketServer } = require("./websocketServer");
 
 const app = express();
 
@@ -24,6 +26,10 @@ app.get("/health", (req, res) => {
 app.use("/auth", authRoutes);
 app.use("/documents", documentRoutes);
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+
+setupWebSocketServer(server);
+
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

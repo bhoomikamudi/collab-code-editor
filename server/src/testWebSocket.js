@@ -7,7 +7,16 @@ if (!documentId || !token) {
   process.exit(1);
 }
 
+let operationAckReceived = false;
+let cursorAckReceived = false;
+
 const ws = new WebSocket("ws://server:5000");
+
+function closeIfDone() {
+  if (operationAckReceived && cursorAckReceived) {
+    ws.close();
+  }
+}
 
 ws.on("open", () => {
   console.log("Test client connected");
@@ -28,6 +37,17 @@ ws.on("message", (data) => {
   if (message.type === "DOCUMENT_JOINED") {
     ws.send(
       JSON.stringify({
+        type: "CURSOR",
+        cursor: {
+          position: 12,
+          selectionStart: 12,
+          selectionEnd: 20
+        }
+      })
+    );
+
+    ws.send(
+      JSON.stringify({
         type: "OPERATION",
         revision: message.revision,
         operation: {
@@ -39,10 +59,17 @@ ws.on("message", (data) => {
     );
   }
 
+  if (message.type === "CURSOR_ACK") {
+    cursorAckReceived = true;
+    console.log("Cursor acknowledged:", message.presence);
+    closeIfDone();
+  }
+
   if (message.type === "OPERATION_ACK") {
+    operationAckReceived = true;
     console.log("Operation acknowledged at revision:", message.revision);
     console.log("Updated document content:", message.document.content);
-    ws.close();
+    closeIfDone();
   }
 
   if (message.type === "ERROR") {

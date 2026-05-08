@@ -8,6 +8,11 @@ const {
 } = require("./operationStore");
 const { applyOperation, transformAgainstHistory } = require("./otEngine");
 const { getDocumentById, updateDocumentContent } = require("./documentStore");
+const {
+  updatePresence,
+  removePresence,
+  getPresenceList
+} = require("./presenceStore");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -82,18 +87,24 @@ async function handleJoinDocument(ws, message) {
   const room = getRoom(documentId);
   room.add(ws);
 
+  const initialPresence = await updatePresence(documentId, decoded, {
+    position: 0,
+    selectionStart: null,
+    selectionEnd: null
+  });
+
+  const activeUsers = await getPresenceList(documentId);
+
   sendJson(ws, {
     type: "DOCUMENT_JOINED",
     document,
-    revision
+    revision,
+    presence: activeUsers
   });
 
   broadcastToRoom(documentId, ws, {
     type: "USER_JOINED",
-    user: {
-      userId: decoded.userId,
-      email: decoded.email
-    }
+    presence: initialPresence
   });
 }
 
@@ -167,6 +178,31 @@ async function handleOperation(ws, message) {
   });
 }
 
+async function handleCursor(ws, message) {
+  if (!ws.user || !ws.documentId) {
+    return sendJson(ws, {
+      type: "ERROR",
+      error: "Join a document before sending cursor updates"
+    });
+  }
+
+  const presence = await updatePresence(
+    ws.documentId,
+    ws.user,
+    message.cursor || {}
+  );
+
+  broadcastToRoom(ws.documentId, ws, {
+    type: "CURSOR_UPDATE",
+    presence
+  });
+
+  return sendJson(ws, {
+    type: "CURSOR_ACK",
+    presence
+  });
+}
+
 function setupWebSocketServer(server) {
   const wss = new WebSocket.Server({ server });
 
@@ -193,6 +229,11 @@ function setupWebSocketServer(server) {
           return;
         }
 
+        if (message.type === "CURSOR") {
+          await handleCursor(ws, message);
+          return;
+        }
+
         return sendJson(ws, {
           type: "ERROR",
           error: `Unknown message type: ${message.type}`
@@ -205,14 +246,14 @@ function setupWebSocketServer(server) {
       }
     });
 
-    ws.on("close", () => {
+    ws.on("close", async () => {
       if (ws.documentId && documentRooms.has(ws.documentId)) {
         const room = documentRooms.get(ws.documentId);
         room.delete(ws);
 
-        if (room.size === 0) {
-          documentRooms.delete(ws.documentId);
-        } else if (ws.user) {
+        if (ws.user) {
+          await removePresence(ws.documentId, ws.user.userId);
+
           broadcastToRoom(ws.documentId, ws, {
             type: "USER_LEFT",
             user: {
@@ -220,6 +261,10 @@ function setupWebSocketServer(server) {
               email: ws.user.email
             }
           });
+        }
+
+        if (room.size === 0) {
+          documentRooms.delete(ws.documentId);
         }
       }
     });

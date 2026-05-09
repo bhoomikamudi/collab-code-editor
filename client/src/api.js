@@ -79,14 +79,62 @@ async function deleteDocument(documentId) {
   });
 }
 
-async function completeCode(codeContext, cursorPosition, language = "javascript") {
+async function indexCodebase(codebaseId, files) {
+  return apiRequest("/ai/index", {
+    method: "POST",
+    body: JSON.stringify({
+      codebase_id: codebaseId,
+      files
+    })
+  });
+}
+
+async function completeCode(
+  codeContext,
+  cursorPosition,
+  language = "javascript",
+  codebaseId = null
+) {
   return apiRequest("/ai/complete", {
     method: "POST",
     body: JSON.stringify({
       code_context: codeContext,
       cursor_position: cursorPosition,
       language,
-      instruction: "Complete the code at the cursor position."
+      instruction: "Complete the code at the cursor position using indexed codebase context.",
+      codebase_id: codebaseId
+    })
+  });
+}
+
+async function explainCode(
+  selectedCode,
+  language = "javascript",
+  codebaseId = null
+) {
+  return apiRequest("/ai/explain", {
+    method: "POST",
+    body: JSON.stringify({
+      selected_code: selectedCode,
+      language,
+      codebase_id: codebaseId
+    })
+  });
+}
+
+async function chatWithCodebase(
+  question,
+  codeContext = "",
+  language = "javascript",
+  codebaseId = null
+) {
+  return apiRequest("/ai/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      question,
+      code_context: codeContext,
+      language,
+      codebase_id: codebaseId
     })
   });
 }
@@ -101,5 +149,8 @@ export {
   listDocuments,
   createDocument,
   deleteDocument,
-  completeCode
+  indexCodebase,
+  completeCode,
+  explainCode,
+  chatWithCodebase
 };

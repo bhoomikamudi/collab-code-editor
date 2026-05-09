@@ -3,12 +3,15 @@ import { createRoot } from "react-dom/client";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import {
+  chatWithCodebase,
   clearAuthToken,
   completeCode,
   createDocument,
   deleteDocument,
+  explainCode,
   getAuthToken,
   getCurrentUser,
+  indexCodebase,
   listDocuments,
   login,
   register
@@ -53,13 +56,39 @@ function getInsertOperation(previousValue, nextValue) {
     index += 1;
   }
 
-  const insertedText = nextValue.slice(index, index + nextValue.length - previousValue.length);
+  const insertedText = nextValue.slice(
+    index,
+    index + nextValue.length - previousValue.length
+  );
 
   return {
     type: "insert",
     position: index,
     text: insertedText
   };
+}
+
+function getCodebaseId(user, document) {
+  if (!user || !document) {
+    return null;
+  }
+
+  return `user-${user.id}-document-${document.id}`;
+}
+
+function formatRagReferences(chunks) {
+  if (!chunks || chunks.length === 0) {
+    return "No RAG references returned.";
+  }
+
+  return chunks
+    .slice(0, 5)
+    .map((chunk) => {
+      return `${chunk.filename || "unknown"}:${chunk.start_line || "?"}-${
+        chunk.end_line || "?"
+      }`;
+    })
+    .join(", ");
 }
 
 function App() {
@@ -76,6 +105,15 @@ function App() {
   const [presence, setPresence] = useState([]);
   const [status, setStatus] = useState("Checking session...");
   const [isLoading, setIsLoading] = useState(false);
+
+  const [selectionRange, setSelectionRange] = useState({ from: 0, to: 0 });
+  const [aiPanelMode, setAiPanelMode] = useState("explain");
+  const [aiOutput, setAiOutput] = useState("");
+  const [ragReferences, setRagReferences] = useState([]);
+  const [chatQuestion, setChatQuestion] = useState(
+    "Where is the main logic in this file?"
+  );
+  const [lastIndexedCodebaseId, setLastIndexedCodebaseId] = useState(null);
 
   const wsRef = useRef(null);
   const editorValueRef = useRef("");
@@ -269,6 +307,8 @@ function App() {
       if (selectedDocument?.id === documentId) {
         setSelectedDocument(null);
         setEditorValue("");
+        setAiOutput("");
+        setRagReferences([]);
       }
 
       setStatus("Document deleted successfully.");
@@ -277,6 +317,18 @@ function App() {
       setStatus(error.message);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  function sendOperationToServer(operation) {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "OPERATION",
+          revision,
+          operation
+        })
+      );
     }
   }
 
@@ -292,39 +344,69 @@ function App() {
     editorValueRef.current = nextValue;
 
     if (!operation) {
-      setStatus("Only insert operations are synced in this prototype.");
+      setStatus("Only insert operations are synced in this prototype UI.");
       return;
     }
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "OPERATION",
-          revision,
-          operation
-        })
-      );
-    }
+    sendOperationToServer(operation);
   }
 
   function handleEditorUpdate(viewUpdate) {
+    const selection = viewUpdate.state.selection.main;
+
+    setSelectionRange({
+      from: selection.from,
+      to: selection.to
+    });
+
     if (!viewUpdate.selectionSet || !wsRef.current) {
       return;
     }
-
-    const cursorPosition = viewUpdate.state.selection.main.head;
 
     if (wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           type: "CURSOR",
           cursor: {
-            position: cursorPosition,
-            selectionStart: viewUpdate.state.selection.main.from,
-            selectionEnd: viewUpdate.state.selection.main.to
+            position: selection.head,
+            selectionStart: selection.from,
+            selectionEnd: selection.to
           }
         })
       );
+    }
+  }
+
+  async function handleIndexCurrentDocument() {
+    if (!selectedDocument || !user) {
+      setStatus("Select a document before indexing.");
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus("Indexing current document into ChromaDB...");
+
+    try {
+      const codebaseId = getCodebaseId(user, selectedDocument);
+
+      const result = await indexCodebase(codebaseId, [
+        {
+          filename: selectedDocument.title.endsWith(".js")
+            ? selectedDocument.title
+            : `${selectedDocument.title}.js`,
+          language: "javascript",
+          content: editorValue
+        }
+      ]);
+
+      setLastIndexedCodebaseId(codebaseId);
+      setStatus(
+        `Indexed ${result.files_indexed} file(s), ${result.chunks_indexed} chunk(s).`
+      );
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -335,15 +417,105 @@ function App() {
     }
 
     setIsLoading(true);
-    setStatus("Generating AI completion...");
+    setStatus("Generating inline AI completion...");
 
     try {
-      const cursorPosition = editorValue.length;
-      const data = await completeCode(editorValue, cursorPosition, "javascript");
-      const nextValue = editorValue + data.completion;
+      const cursorPosition =
+        selectionRange.from === selectionRange.to
+          ? selectionRange.to
+          : editorValue.length;
+
+      const codebaseId =
+        lastIndexedCodebaseId || getCodebaseId(user, selectedDocument);
+
+      const data = await completeCode(
+        editorValue,
+        cursorPosition,
+        "javascript",
+        codebaseId
+      );
+
+      const nextValue =
+        editorValue.slice(0, cursorPosition) +
+        data.completion +
+        editorValue.slice(cursorPosition);
 
       handleEditorChange(nextValue);
-      setStatus(`AI completion inserted using ${data.model}.`);
+      setAiPanelMode("completion");
+      setAiOutput(data.completion);
+      setRagReferences(data.rag_chunks || []);
+      setStatus(`Inline AI completion inserted using ${data.model}.`);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleExplainSelection() {
+    if (!selectedDocument) {
+      setStatus("Select a document before using explain.");
+      return;
+    }
+
+    const selectedCode = editorValue.slice(selectionRange.from, selectionRange.to);
+
+    if (!selectedCode.trim()) {
+      setStatus("Select code in the editor first, then click Explain Selection.");
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus("Explaining selected code...");
+
+    try {
+      const codebaseId =
+        lastIndexedCodebaseId || getCodebaseId(user, selectedDocument);
+
+      const data = await explainCode(selectedCode, "javascript", codebaseId);
+
+      setAiPanelMode("explain");
+      setAiOutput(data.explanation);
+      setRagReferences(data.rag_chunks || []);
+      setStatus(`Explanation generated using ${data.model}.`);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleChatSubmit(event) {
+    event.preventDefault();
+
+    if (!selectedDocument) {
+      setStatus("Select a document before chatting with the codebase.");
+      return;
+    }
+
+    if (!chatQuestion.trim()) {
+      setStatus("Enter a codebase question first.");
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus("Asking codebase chat...");
+
+    try {
+      const codebaseId =
+        lastIndexedCodebaseId || getCodebaseId(user, selectedDocument);
+
+      const data = await chatWithCodebase(
+        chatQuestion,
+        editorValue,
+        "javascript",
+        codebaseId
+      );
+
+      setAiPanelMode("chat");
+      setAiOutput(data.answer);
+      setRagReferences(data.rag_chunks || []);
+      setStatus(`Codebase chat answered using ${data.model}.`);
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -358,6 +530,9 @@ function App() {
     setSelectedDocument(null);
     setEditorValue("");
     setPresence([]);
+    setAiOutput("");
+    setRagReferences([]);
+    setLastIndexedCodebaseId(null);
     setStatus("Logged out.");
   }
 
@@ -457,7 +632,12 @@ function App() {
               >
                 <button
                   style={styles.documentButton}
-                  onClick={() => setSelectedDocument(document)}
+                  onClick={() => {
+                    setSelectedDocument(document);
+                    setAiOutput("");
+                    setRagReferences([]);
+                    setLastIndexedCodebaseId(null);
+                  }}
                 >
                   <strong>{document.title}</strong>
                   <span>{new Date(document.updated_at).toLocaleString()}</span>
@@ -492,56 +672,147 @@ function App() {
           <div style={styles.headerRight}>
             <span style={styles.connectionPill}>{connectionStatus}</span>
             <button
+              style={styles.secondarySmallButton}
+              onClick={handleIndexCurrentDocument}
+              disabled={!selectedDocument || isLoading}
+            >
+              Index for RAG
+            </button>
+            <button
               style={styles.aiButton}
               onClick={handleAiComplete}
               disabled={!selectedDocument || isLoading}
             >
               AI Complete
             </button>
+            <button
+              style={styles.aiButton}
+              onClick={handleExplainSelection}
+              disabled={!selectedDocument || isLoading}
+            >
+              Explain Selection
+            </button>
           </div>
         </header>
 
-        <div style={styles.editorPreview}>
-          {selectedDocument ? (
-            <>
-              <div style={styles.editorTopBar}>
-                <span style={styles.dot}></span>
-                <span style={styles.dot}></span>
-                <span style={styles.dot}></span>
-                <span style={styles.fileName}>{selectedDocument.title}</span>
-                <span style={styles.revisionText}>Revision {revision}</span>
-              </div>
+        <div style={styles.mainGrid}>
+          <div style={styles.editorPreview}>
+            {selectedDocument ? (
+              <>
+                <div style={styles.editorTopBar}>
+                  <span style={styles.dot}></span>
+                  <span style={styles.dot}></span>
+                  <span style={styles.dot}></span>
+                  <span style={styles.fileName}>{selectedDocument.title}</span>
+                  <span style={styles.revisionText}>Revision {revision}</span>
+                </div>
 
-              <CodeMirror
-                value={editorValue}
-                height="520px"
-                extensions={[javascript()]}
-                theme="dark"
-                onChange={handleEditorChange}
-                onUpdate={handleEditorUpdate}
-                basicSetup={{
-                  lineNumbers: true,
-                  foldGutter: true,
-                  highlightActiveLine: true
+                <CodeMirror
+                  value={editorValue}
+                  height="560px"
+                  extensions={[javascript()]}
+                  theme="dark"
+                  onChange={handleEditorChange}
+                  onUpdate={handleEditorUpdate}
+                  basicSetup={{
+                    lineNumbers: true,
+                    foldGutter: true,
+                    highlightActiveLine: true
+                  }}
+                />
+
+                <div style={styles.presencePanel}>
+                  <strong>Presence:</strong>{" "}
+                  {presence.length === 0
+                    ? "No active users"
+                    : presence.map((item) => item.email).join(", ")}
+                </div>
+              </>
+            ) : (
+              <div style={styles.placeholder}>
+                <h3>Select a document to start editing.</h3>
+                <p>
+                  The editor will connect to WebSocket sync after a document is
+                  selected.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <aside style={styles.aiPanel}>
+            <p style={styles.badge}>AI Assistant</p>
+
+            <div style={styles.aiTabs}>
+              <button
+                style={{
+                  ...styles.tabButton,
+                  ...(aiPanelMode === "completion" ? styles.tabButtonActive : {})
                 }}
-              />
+                onClick={() => setAiPanelMode("completion")}
+              >
+                Completion
+              </button>
+              <button
+                style={{
+                  ...styles.tabButton,
+                  ...(aiPanelMode === "explain" ? styles.tabButtonActive : {})
+                }}
+                onClick={() => setAiPanelMode("explain")}
+              >
+                Explain
+              </button>
+              <button
+                style={{
+                  ...styles.tabButton,
+                  ...(aiPanelMode === "chat" ? styles.tabButtonActive : {})
+                }}
+                onClick={() => setAiPanelMode("chat")}
+              >
+                Chat
+              </button>
+            </div>
 
-              <div style={styles.presencePanel}>
-                <strong>Presence:</strong>{" "}
-                {presence.length === 0
-                  ? "No active users"
-                  : presence.map((item) => item.email).join(", ")}
-              </div>
-            </>
-          ) : (
-            <div style={styles.placeholder}>
-              <h3>Select a document to start editing.</h3>
-              <p>
-                The editor will connect to WebSocket sync after a document is
-                selected.
+            <form onSubmit={handleChatSubmit} style={styles.chatForm}>
+              <textarea
+                style={styles.chatInput}
+                value={chatQuestion}
+                onChange={(event) => setChatQuestion(event.target.value)}
+                placeholder="Ask about this codebase..."
+              />
+              <button
+                style={styles.primaryButton}
+                disabled={!selectedDocument || isLoading}
+              >
+                Ask Codebase
+              </button>
+            </form>
+
+            <div style={styles.aiOutputBox}>
+              <h3 style={styles.aiOutputTitle}>
+                {aiPanelMode === "completion"
+                  ? "Inline Completion"
+                  : aiPanelMode === "explain"
+                    ? "Selection Explanation"
+                    : "Codebase Chat"}
+              </h3>
+              <p style={styles.aiOutputText}>
+                {aiOutput || "AI responses will appear here."}
               </p>
             </div>
-          )}
+
+            <div style={styles.ragBox}>
+              <strong>RAG References</strong>
+              <p>{formatRagReferences(ragReferences)}</p>
+            </div>
+
+            <div style={styles.tipBox}>
+              <strong>How to test:</strong>
+              <p>
+                Click “Index for RAG”, select a few lines in the editor, click
+                “Explain Selection”, then ask a question in the chat box.
+              </p>
+            </div>
+          </aside>
         </div>
 
         {status && <p style={styles.status}>{status}</p>}
@@ -574,7 +845,7 @@ const styles = {
   appShell: {
     minHeight: "100vh",
     display: "grid",
-    gridTemplateColumns: "360px 1fr",
+    gridTemplateColumns: "340px 1fr",
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
     background: "#0f172a",
@@ -603,7 +874,15 @@ const styles = {
   headerRight: {
     display: "flex",
     alignItems: "center",
-    gap: "12px"
+    gap: "10px",
+    flexWrap: "wrap",
+    justifyContent: "flex-end"
+  },
+  mainGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 360px",
+    gap: "18px",
+    alignItems: "stretch"
   },
   badge: {
     display: "inline-block",
@@ -674,6 +953,15 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer"
   },
+  secondarySmallButton: {
+    border: "1px solid #475569",
+    borderRadius: "12px",
+    padding: "11px 14px",
+    background: "#020617",
+    color: "#f8fafc",
+    fontWeight: 700,
+    cursor: "pointer"
+  },
   aiButton: {
     border: 0,
     borderRadius: "12px",
@@ -705,7 +993,7 @@ const styles = {
   status: {
     color: "#cbd5e1",
     margin: "0",
-    maxWidth: "640px"
+    maxWidth: "920px"
   },
   documentList: {
     display: "flex",
@@ -753,7 +1041,7 @@ const styles = {
     borderRadius: "22px",
     background: "#020617",
     overflow: "hidden",
-    minHeight: "620px"
+    minHeight: "660px"
   },
   editorTopBar: {
     height: "44px",
@@ -803,6 +1091,88 @@ const styles = {
     color: "#cbd5e1",
     textAlign: "center",
     padding: "24px"
+  },
+  aiPanel: {
+    border: "1px solid #334155",
+    borderRadius: "22px",
+    background: "#111827",
+    minHeight: "660px",
+    padding: "18px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px"
+  },
+  aiTabs: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap"
+  },
+  tabButton: {
+    border: "1px solid #334155",
+    borderRadius: "999px",
+    padding: "8px 10px",
+    background: "#020617",
+    color: "#cbd5e1",
+    cursor: "pointer",
+    fontWeight: 700
+  },
+  tabButtonActive: {
+    borderColor: "#93c5fd",
+    color: "#ffffff",
+    background: "#1d4ed8"
+  },
+  chatForm: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px"
+  },
+  chatInput: {
+    width: "100%",
+    minHeight: "90px",
+    resize: "vertical",
+    boxSizing: "border-box",
+    border: "1px solid #475569",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    background: "#020617",
+    color: "#f8fafc",
+    outline: "none",
+    fontSize: "14px",
+    lineHeight: 1.5
+  },
+  aiOutputBox: {
+    border: "1px solid #334155",
+    borderRadius: "16px",
+    background: "#020617",
+    padding: "14px",
+    minHeight: "150px"
+  },
+  aiOutputTitle: {
+    margin: "0 0 10px",
+    fontSize: "17px"
+  },
+  aiOutputText: {
+    margin: 0,
+    color: "#cbd5e1",
+    lineHeight: 1.6,
+    whiteSpace: "pre-wrap"
+  },
+  ragBox: {
+    border: "1px solid #334155",
+    borderRadius: "16px",
+    background: "#020617",
+    padding: "14px",
+    color: "#cbd5e1",
+    lineHeight: 1.5
+  },
+  tipBox: {
+    border: "1px solid #475569",
+    borderRadius: "16px",
+    background: "#0f172a",
+    padding: "14px",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+    marginTop: "auto"
   }
 };
 

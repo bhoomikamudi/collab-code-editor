@@ -54,6 +54,19 @@ class CompletionRequest(BaseModel):
     codebase_id: Optional[str] = None
 
 
+class ExplainRequest(BaseModel):
+    selected_code: str = Field(..., min_length=1)
+    language: str = Field(default="javascript")
+    codebase_id: Optional[str] = None
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    code_context: str = Field(default="")
+    language: str = Field(default="javascript")
+    codebase_id: Optional[str] = None
+
+
 class RagChunk(BaseModel):
     filename: Optional[str] = None
     language: Optional[str] = None
@@ -67,6 +80,56 @@ class CompletionResponse(BaseModel):
     model: str
     language: str
     rag_chunks: List[RagChunk] = []
+
+
+class ExplainResponse(BaseModel):
+    explanation: str
+    model: str
+    language: str
+    rag_chunks: List[RagChunk] = []
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    model: str
+    language: str
+    rag_chunks: List[RagChunk] = []
+
+
+def build_rag_chunks(query: str, codebase_id: Optional[str]) -> List[RagChunk]:
+    retrieved_chunks = retrieve_relevant_chunks(
+        query=query,
+        codebase_id=codebase_id,
+        top_k=5,
+    )
+
+    return [
+        RagChunk(
+            filename=chunk.get("filename"),
+            language=chunk.get("language"),
+            start_line=chunk.get("start_line"),
+            end_line=chunk.get("end_line"),
+            content=chunk.get("content") or "",
+        )
+        for chunk in retrieved_chunks
+    ]
+
+
+def format_rag_context(rag_chunks: List[RagChunk]) -> str:
+    if not rag_chunks:
+        return "No indexed codebase context was found."
+
+    return "\n\n".join(
+        [
+            (
+                f"File: {chunk.filename}\n"
+                f"Lines: {chunk.start_line}-{chunk.end_line}\n"
+                f"Language: {chunk.language}\n"
+                f"Code:\n{chunk.content}"
+            )
+            for chunk in rag_chunks
+        ]
+    )
 
 
 @app.get("/health")
@@ -100,22 +163,7 @@ def complete_code(request: CompletionRequest):
     before_cursor = request.code_context[: request.cursor_position]
     after_cursor = request.code_context[request.cursor_position :]
 
-    retrieved_chunks = retrieve_relevant_chunks(
-        query=before_cursor,
-        codebase_id=request.codebase_id,
-        top_k=5,
-    )
-
-    rag_chunks = [
-        RagChunk(
-            filename=chunk.get("filename"),
-            language=chunk.get("language"),
-            start_line=chunk.get("start_line"),
-            end_line=chunk.get("end_line"),
-            content=chunk.get("content") or "",
-        )
-        for chunk in retrieved_chunks
-    ]
+    rag_chunks = build_rag_chunks(before_cursor, request.codebase_id)
 
     if USE_MOCK_AI:
         if rag_chunks:
@@ -149,18 +197,6 @@ def complete_code(request: CompletionRequest):
         "Return only the code completion. Do not explain."
     )
 
-    rag_context = "\n\n".join(
-        [
-            (
-                f"File: {chunk.filename}\n"
-                f"Lines: {chunk.start_line}-{chunk.end_line}\n"
-                f"Language: {chunk.language}\n"
-                f"Code:\n{chunk.content}"
-            )
-            for chunk in rag_chunks
-        ]
-    )
-
     prompt = f"""
 You are an expert software engineer helping with code completion.
 
@@ -170,7 +206,7 @@ User instruction:
 {user_instruction}
 
 Relevant codebase context:
-{rag_context if rag_context else "No indexed codebase context was found."}
+{format_rag_context(rag_chunks)}
 
 Code before cursor:
 {before_cursor}
@@ -216,4 +252,165 @@ Do not include markdown formatting.
         raise HTTPException(
             status_code=500,
             detail=f"AI completion failed: {str(error)}",
+        )
+
+
+@app.post("/explain", response_model=ExplainResponse)
+def explain_code(request: ExplainRequest):
+    rag_chunks = build_rag_chunks(request.selected_code, request.codebase_id)
+
+    if USE_MOCK_AI:
+        reference = ""
+
+        if rag_chunks:
+            first_chunk = rag_chunks[0]
+            reference = (
+                f"\n\nRelated context: {first_chunk.filename}:"
+                f"{first_chunk.start_line}-{first_chunk.end_line}"
+            )
+
+        return ExplainResponse(
+            explanation=(
+                "This selected code appears to define or use logic related to the "
+                "current editor context. It should be reviewed for inputs, return "
+                "value, and how it connects with nearby functions."
+                f"{reference}"
+            ),
+            model="mock-ai-rag",
+            language=request.language,
+            rag_chunks=rag_chunks,
+        )
+
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "paste_your_openai_api_key_here":
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    prompt = f"""
+Explain the selected code clearly and concisely.
+
+Language: {request.language}
+
+Relevant codebase context:
+{format_rag_context(rag_chunks)}
+
+Selected code:
+{request.selected_code}
+
+Explain what it does, important inputs/outputs, and any risks or edge cases.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You explain code clearly with practical engineering detail.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=320,
+        )
+
+        explanation = response.choices[0].message.content or ""
+
+        return ExplainResponse(
+            explanation=explanation.strip(),
+            model=OPENAI_MODEL,
+            language=request.language,
+            rag_chunks=rag_chunks,
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI explanation failed: {str(error)}",
+        )
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_with_codebase(request: ChatRequest):
+    query = f"{request.question}\n\n{request.code_context}"
+    rag_chunks = build_rag_chunks(query, request.codebase_id)
+
+    if USE_MOCK_AI:
+        if rag_chunks:
+            references = ", ".join(
+                [
+                    f"{chunk.filename}:{chunk.start_line}-{chunk.end_line}"
+                    for chunk in rag_chunks[:3]
+                ]
+            )
+
+            return ChatResponse(
+                answer=(
+                    "Based on the indexed codebase context, the most relevant "
+                    f"files are: {references}. This answer is generated in mock "
+                    "RAG mode for local testing."
+                ),
+                model="mock-ai-rag",
+                language=request.language,
+                rag_chunks=rag_chunks,
+            )
+
+        return ChatResponse(
+            answer=(
+                "No indexed codebase context was found yet. Index files first, "
+                "then ask the question again."
+            ),
+            model="mock-ai",
+            language=request.language,
+            rag_chunks=[],
+        )
+
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "paste_your_openai_api_key_here":
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    prompt = f"""
+You are answering questions about a codebase.
+
+Language: {request.language}
+
+Relevant codebase context:
+{format_rag_context(rag_chunks)}
+
+Current editor context:
+{request.code_context}
+
+Question:
+{request.question}
+
+Answer with practical detail. Mention file references when useful.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a codebase-aware assistant. "
+                        "Ground your answer in retrieved code context."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=420,
+        )
+
+        answer = response.choices[0].message.content or ""
+
+        return ChatResponse(
+            answer=answer.strip(),
+            model=OPENAI_MODEL,
+            language=request.language,
+            rag_chunks=rag_chunks,
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Codebase chat failed: {str(error)}",
         )

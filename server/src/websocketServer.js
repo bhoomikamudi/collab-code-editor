@@ -6,7 +6,11 @@ const {
   getOperationsSince,
   appendOperation
 } = require("./operationStore");
-const { applyOperation, transformAgainstHistory } = require("./otEngine");
+const {
+  applyTextOperation,
+  buildAndTransformOperation,
+  textOperationToSimple
+} = require("./otEngine");
 const { getDocumentById, updateDocumentContent } = require("./documentStore");
 const {
   updatePresence,
@@ -123,6 +127,13 @@ async function handleOperation(ws, message) {
     });
   }
 
+  if (!message.operation || typeof message.operation !== "object") {
+    return sendJson(ws, {
+      type: "ERROR",
+      error: "A valid operation is required"
+    });
+  }
+
   const documentId = ws.documentId;
   const clientRevision = message.revision;
 
@@ -131,23 +142,34 @@ async function handleOperation(ws, message) {
     clientRevision
   );
 
-  const transformedOperation = transformAgainstHistory(
-    message.operation,
-    historySinceClientRevision
+  const currentDocument = await getDocumentById(documentId);
+  const baseContent = currentDocument.content || "";
+
+  const transformedTextOperation = buildAndTransformOperation({
+    simpleOperation: message.operation,
+    baseContentLength: baseContent.length,
+    history: historySinceClientRevision
+  });
+
+  const updatedContent = applyTextOperation(
+    baseContent,
+    transformedTextOperation
   );
 
-  const currentDocument = await getDocumentById(documentId);
-  const updatedContent = applyOperation(
-    currentDocument.content,
-    transformedOperation
+  const transformedOperation = textOperationToSimple(
+    baseContent,
+    updatedContent
   );
 
   const updatedDocument = await updateDocumentContent(documentId, updatedContent);
 
   const serverRevisionBeforeAppend = await getOperationCount(documentId);
+
   const operationRecord = {
     revision: serverRevisionBeforeAppend,
     operation: transformedOperation,
+    otOperation: transformedTextOperation.toJSON(),
+    baseContentLength: baseContent.length,
     user: {
       userId: ws.user.userId,
       email: ws.user.email
@@ -238,7 +260,10 @@ function setupWebSocketServer(server) {
           type: "ERROR",
           error: `Unknown message type: ${message.type}`
         });
-      } catch (error) {
+            } catch (error) {
+        console.error("WebSocket message handling error:", error);
+        console.error(error.stack);
+
         return sendJson(ws, {
           type: "ERROR",
           error: error.message || "Invalid WebSocket message"

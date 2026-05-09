@@ -1,4 +1,6 @@
-function isValidOperation(operation) {
+const ot = require("ot");
+
+function isValidSimpleOperation(operation) {
   if (!operation || typeof operation !== "object") {
     return false;
   }
@@ -23,144 +25,194 @@ function isValidOperation(operation) {
   return false;
 }
 
-function applyOperation(content, operation) {
-  if (!isValidOperation(operation)) {
+function simpleToTextOperation(operation, baseContentLength) {
+  if (!isValidSimpleOperation(operation)) {
     throw new Error("Invalid operation format");
   }
 
-  if (operation.position > content.length) {
+  if (!Number.isInteger(baseContentLength) || baseContentLength < 0) {
+    throw new Error("Valid baseContentLength is required");
+  }
+
+  if (operation.position > baseContentLength) {
     throw new Error("Operation position is outside document content");
   }
 
+  const textOperation = new ot.TextOperation();
+
   if (operation.type === "insert") {
-    return (
-      content.slice(0, operation.position) +
-      operation.text +
-      content.slice(operation.position)
-    );
+    textOperation
+      .retain(operation.position)
+      .insert(operation.text)
+      .retain(baseContentLength - operation.position);
+
+    return textOperation;
   }
 
   if (operation.type === "delete") {
-    return (
-      content.slice(0, operation.position) +
-      content.slice(operation.position + operation.length)
-    );
+    if (operation.position + operation.length > baseContentLength) {
+      throw new Error("Delete operation exceeds document content length");
+    }
+
+    textOperation
+      .retain(operation.position)
+      .delete(operation.length)
+      .retain(baseContentLength - operation.position - operation.length);
+
+    return textOperation;
   }
 
   throw new Error(`Unsupported operation type: ${operation.type}`);
 }
 
-function transformInsertAgainstInsert(incoming, existing) {
-  const transformed = { ...incoming };
+function manuallyApplyTextOperation(content, textOperation) {
+  let cursor = 0;
+  let result = "";
 
-  if (existing.position < incoming.position) {
-    transformed.position += existing.text.length;
+  for (const component of textOperation.ops) {
+    if (typeof component === "number") {
+      if (component > 0) {
+        result += content.slice(cursor, cursor + component);
+        cursor += component;
+      }
+
+      if (component < 0) {
+        cursor += Math.abs(component);
+      }
+    }
+
+    if (typeof component === "string") {
+      result += component;
+    }
   }
 
-  if (existing.position === incoming.position) {
-    transformed.position += existing.text.length;
-  }
+  result += content.slice(cursor);
 
-  return transformed;
+  return result;
 }
 
-function transformInsertAgainstDelete(incoming, existing) {
-  const transformed = { ...incoming };
+function applyTextOperation(content, textOperation) {
+  const safeContent = content || "";
 
-  if (existing.position < incoming.position) {
-    const deletedBeforeIncoming = Math.min(
-      existing.length,
-      incoming.position - existing.position
+  try {
+    const applied = textOperation.apply(safeContent);
+
+    if (typeof applied === "string") {
+      return applied;
+    }
+
+    if (Array.isArray(applied) && typeof applied[0] === "string") {
+      return applied[0];
+    }
+  } catch (error) {
+    return manuallyApplyTextOperation(safeContent, textOperation);
+  }
+
+  return manuallyApplyTextOperation(safeContent, textOperation);
+}
+
+function textOperationToSimple(beforeContent, afterContent) {
+  const safeBefore = beforeContent || "";
+  const safeAfter = afterContent || "";
+
+  if (safeAfter.length > safeBefore.length) {
+    let index = 0;
+
+    while (
+      index < safeBefore.length &&
+      safeBefore[index] === safeAfter[index]
+    ) {
+      index += 1;
+    }
+
+    const insertedLength = safeAfter.length - safeBefore.length;
+
+    return {
+      type: "insert",
+      position: index,
+      text: safeAfter.slice(index, index + insertedLength)
+    };
+  }
+
+  if (safeAfter.length < safeBefore.length) {
+    let index = 0;
+
+    while (
+      index < safeAfter.length &&
+      safeBefore[index] === safeAfter[index]
+    ) {
+      index += 1;
+    }
+
+    const deletedLength = safeBefore.length - safeAfter.length;
+
+    return {
+      type: "delete",
+      position: index,
+      length: deletedLength
+    };
+  }
+
+  return {
+    type: "noop",
+    position: 0,
+    text: ""
+  };
+}
+
+function getTextOperationFromRecord(operationRecord) {
+  if (operationRecord.otOperation) {
+    return ot.TextOperation.fromJSON(operationRecord.otOperation);
+  }
+
+  if (
+    operationRecord.operation &&
+    Number.isInteger(operationRecord.baseContentLength)
+  ) {
+    return simpleToTextOperation(
+      operationRecord.operation,
+      operationRecord.baseContentLength
     );
-
-    transformed.position -= deletedBeforeIncoming;
   }
 
-  return transformed;
+  throw new Error("Operation record does not contain a valid OT operation");
 }
 
-function transformDeleteAgainstInsert(incoming, existing) {
-  const transformed = { ...incoming };
-
-  if (existing.position <= incoming.position) {
-    transformed.position += existing.text.length;
-  }
-
-  return transformed;
-}
-
-function transformDeleteAgainstDelete(incoming, existing) {
-  const transformed = { ...incoming };
-
-  const existingEnd = existing.position + existing.length;
-  const incomingEnd = incoming.position + incoming.length;
-
-  if (existingEnd <= incoming.position) {
-    transformed.position -= existing.length;
-    return transformed;
-  }
-
-  if (existing.position >= incomingEnd) {
-    return transformed;
-  }
-
-  const overlapStart = Math.max(existing.position, incoming.position);
-  const overlapEnd = Math.min(existingEnd, incomingEnd);
-  const overlapLength = Math.max(0, overlapEnd - overlapStart);
-
-  transformed.length = Math.max(0, incoming.length - overlapLength);
-
-  if (existing.position < incoming.position) {
-    transformed.position = existing.position;
-  }
-
-  return transformed;
-}
-
-function transformOperation(incomingOperation, existingOperation) {
-  if (!isValidOperation(incomingOperation)) {
-    throw new Error("Invalid incoming operation");
-  }
-
-  if (!isValidOperation(existingOperation)) {
-    throw new Error("Invalid existing operation");
-  }
-
-  if (incomingOperation.type === "insert" && existingOperation.type === "insert") {
-    return transformInsertAgainstInsert(incomingOperation, existingOperation);
-  }
-
-  if (incomingOperation.type === "insert" && existingOperation.type === "delete") {
-    return transformInsertAgainstDelete(incomingOperation, existingOperation);
-  }
-
-  if (incomingOperation.type === "delete" && existingOperation.type === "insert") {
-    return transformDeleteAgainstInsert(incomingOperation, existingOperation);
-  }
-
-  if (incomingOperation.type === "delete" && existingOperation.type === "delete") {
-    return transformDeleteAgainstDelete(incomingOperation, existingOperation);
-  }
-
-  return incomingOperation;
-}
-
-function transformAgainstHistory(incomingOperation, history) {
-  let transformedOperation = { ...incomingOperation };
+function transformAgainstHistory(incomingTextOperation, history) {
+  let transformedOperation = incomingTextOperation;
 
   for (const operationRecord of history) {
-    transformedOperation = transformOperation(
+    const existingOperation = getTextOperationFromRecord(operationRecord);
+
+    const transformedPair = ot.TextOperation.transform(
       transformedOperation,
-      operationRecord.operation
+      existingOperation
     );
+
+    transformedOperation = transformedPair[0];
   }
 
   return transformedOperation;
 }
 
+function buildAndTransformOperation({
+  simpleOperation,
+  baseContentLength,
+  history
+}) {
+  const incomingTextOperation = simpleToTextOperation(
+    simpleOperation,
+    baseContentLength
+  );
+
+  return transformAgainstHistory(incomingTextOperation, history);
+}
+
 module.exports = {
-  isValidOperation,
-  applyOperation,
-  transformOperation,
-  transformAgainstHistory
+  isValidSimpleOperation,
+  simpleToTextOperation,
+  textOperationToSimple,
+  transformAgainstHistory,
+  applyTextOperation,
+  buildAndTransformOperation
 };

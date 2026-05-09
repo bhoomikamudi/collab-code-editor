@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import CodeMirror from "@uiw/react-codemirror";
+import { javascript } from "@codemirror/lang-javascript";
 import {
   clearAuthToken,
+  completeCode,
   createDocument,
   deleteDocument,
   getAuthToken,
@@ -11,6 +14,54 @@ import {
   register
 } from "./api";
 
+const WS_URL = "ws://localhost:5000";
+
+function applySimpleOperation(content, operation) {
+  if (!operation || typeof operation !== "object") {
+    return content;
+  }
+
+  if (operation.type === "insert") {
+    return (
+      content.slice(0, operation.position) +
+      operation.text +
+      content.slice(operation.position)
+    );
+  }
+
+  if (operation.type === "delete") {
+    return (
+      content.slice(0, operation.position) +
+      content.slice(operation.position + operation.length)
+    );
+  }
+
+  return content;
+}
+
+function getInsertOperation(previousValue, nextValue) {
+  if (nextValue.length <= previousValue.length) {
+    return null;
+  }
+
+  let index = 0;
+
+  while (
+    index < previousValue.length &&
+    previousValue[index] === nextValue[index]
+  ) {
+    index += 1;
+  }
+
+  const insertedText = nextValue.slice(index, index + nextValue.length - previousValue.length);
+
+  return {
+    type: "insert",
+    position: index,
+    text: insertedText
+  };
+}
+
 function App() {
   const [user, setUser] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -19,8 +70,16 @@ function App() {
   const [password, setPassword] = useState("password123");
   const [newTitle, setNewTitle] = useState("Untitled JavaScript File");
   const [selectedDocument, setSelectedDocument] = useState(null);
+  const [editorValue, setEditorValue] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState("Disconnected");
+  const [presence, setPresence] = useState([]);
   const [status, setStatus] = useState("Checking session...");
   const [isLoading, setIsLoading] = useState(false);
+
+  const wsRef = useRef(null);
+  const editorValueRef = useRef("");
+  const suppressChangeRef = useRef(false);
 
   useEffect(() => {
     async function loadSession() {
@@ -42,6 +101,111 @@ function App() {
 
     loadSession();
   }, []);
+
+  useEffect(() => {
+    editorValueRef.current = editorValue;
+  }, [editorValue]);
+
+  useEffect(() => {
+    if (!selectedDocument || !getAuthToken()) {
+      return;
+    }
+
+    const socket = new WebSocket(WS_URL);
+    wsRef.current = socket;
+    setConnectionStatus("Connecting...");
+
+    socket.onopen = () => {
+      setConnectionStatus("Connected");
+
+      socket.send(
+        JSON.stringify({
+          type: "JOIN_DOCUMENT",
+          documentId: selectedDocument.id,
+          token: getAuthToken()
+        })
+      );
+    };
+
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+
+      if (message.type === "DOCUMENT_JOINED") {
+        suppressChangeRef.current = true;
+        setEditorValue(message.document.content || "");
+        editorValueRef.current = message.document.content || "";
+        setRevision(message.revision || 0);
+        setPresence(message.presence || []);
+        setStatus("Joined real-time document room.");
+        setTimeout(() => {
+          suppressChangeRef.current = false;
+        }, 0);
+      }
+
+      if (message.type === "OPERATION_ACK") {
+        setRevision(message.revision);
+        setStatus(`Saved at revision ${message.revision}.`);
+      }
+
+      if (message.type === "REMOTE_OPERATION") {
+        suppressChangeRef.current = true;
+        const nextValue = applySimpleOperation(
+          editorValueRef.current,
+          message.operation
+        );
+
+        setEditorValue(nextValue);
+        editorValueRef.current = nextValue;
+        setRevision(message.revision);
+        setStatus(`Remote update received at revision ${message.revision}.`);
+
+        setTimeout(() => {
+          suppressChangeRef.current = false;
+        }, 0);
+      }
+
+      if (message.type === "CURSOR_UPDATE") {
+        setPresence((currentPresence) => {
+          const others = currentPresence.filter(
+            (item) => item.userId !== message.presence.userId
+          );
+          return [...others, message.presence];
+        });
+      }
+
+      if (message.type === "USER_JOINED") {
+        setPresence((currentPresence) => {
+          const others = currentPresence.filter(
+            (item) => item.userId !== message.presence.userId
+          );
+          return [...others, message.presence];
+        });
+      }
+
+      if (message.type === "USER_LEFT") {
+        setPresence((currentPresence) =>
+          currentPresence.filter((item) => item.userId !== message.user.userId)
+        );
+      }
+
+      if (message.type === "ERROR") {
+        setStatus(message.error);
+      }
+    };
+
+    socket.onerror = () => {
+      setConnectionStatus("Error");
+      setStatus("WebSocket connection error.");
+    };
+
+    socket.onclose = () => {
+      setConnectionStatus("Disconnected");
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [selectedDocument]);
 
   async function loadDocuments() {
     const data = await listDocuments();
@@ -104,10 +268,82 @@ function App() {
 
       if (selectedDocument?.id === documentId) {
         setSelectedDocument(null);
+        setEditorValue("");
       }
 
       setStatus("Document deleted successfully.");
       await loadDocuments();
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function handleEditorChange(nextValue) {
+    if (suppressChangeRef.current) {
+      return;
+    }
+
+    const previousValue = editorValueRef.current;
+    const operation = getInsertOperation(previousValue, nextValue);
+
+    setEditorValue(nextValue);
+    editorValueRef.current = nextValue;
+
+    if (!operation) {
+      setStatus("Only insert operations are synced in this prototype.");
+      return;
+    }
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "OPERATION",
+          revision,
+          operation
+        })
+      );
+    }
+  }
+
+  function handleEditorUpdate(viewUpdate) {
+    if (!viewUpdate.selectionSet || !wsRef.current) {
+      return;
+    }
+
+    const cursorPosition = viewUpdate.state.selection.main.head;
+
+    if (wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "CURSOR",
+          cursor: {
+            position: cursorPosition,
+            selectionStart: viewUpdate.state.selection.main.from,
+            selectionEnd: viewUpdate.state.selection.main.to
+          }
+        })
+      );
+    }
+  }
+
+  async function handleAiComplete() {
+    if (!selectedDocument) {
+      setStatus("Select a document before using AI completion.");
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus("Generating AI completion...");
+
+    try {
+      const cursorPosition = editorValue.length;
+      const data = await completeCode(editorValue, cursorPosition, "javascript");
+      const nextValue = editorValue + data.completion;
+
+      handleEditorChange(nextValue);
+      setStatus(`AI completion inserted using ${data.model}.`);
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -120,6 +356,8 @@ function App() {
     setUser(null);
     setDocuments([]);
     setSelectedDocument(null);
+    setEditorValue("");
+    setPresence([]);
     setStatus("Logged out.");
   }
 
@@ -245,12 +483,22 @@ function App() {
       <section style={styles.workspace}>
         <header style={styles.workspaceHeader}>
           <div>
-            <p style={styles.badge}>Dashboard</p>
+            <p style={styles.badge}>Editor</p>
             <h2 style={styles.workspaceTitle}>
               {selectedDocument ? selectedDocument.title : "Select a document"}
             </h2>
           </div>
-          <p style={styles.status}>{status}</p>
+
+          <div style={styles.headerRight}>
+            <span style={styles.connectionPill}>{connectionStatus}</span>
+            <button
+              style={styles.aiButton}
+              onClick={handleAiComplete}
+              disabled={!selectedDocument || isLoading}
+            >
+              AI Complete
+            </button>
+          </div>
         </header>
 
         <div style={styles.editorPreview}>
@@ -261,21 +509,42 @@ function App() {
                 <span style={styles.dot}></span>
                 <span style={styles.dot}></span>
                 <span style={styles.fileName}>{selectedDocument.title}</span>
+                <span style={styles.revisionText}>Revision {revision}</span>
               </div>
-              <pre style={styles.codeBlock}>
-                {selectedDocument.content || "// Empty document"}
-              </pre>
+
+              <CodeMirror
+                value={editorValue}
+                height="520px"
+                extensions={[javascript()]}
+                theme="dark"
+                onChange={handleEditorChange}
+                onUpdate={handleEditorUpdate}
+                basicSetup={{
+                  lineNumbers: true,
+                  foldGutter: true,
+                  highlightActiveLine: true
+                }}
+              />
+
+              <div style={styles.presencePanel}>
+                <strong>Presence:</strong>{" "}
+                {presence.length === 0
+                  ? "No active users"
+                  : presence.map((item) => item.email).join(", ")}
+              </div>
             </>
           ) : (
             <div style={styles.placeholder}>
-              <h3>Frontend dashboard is ready.</h3>
+              <h3>Select a document to start editing.</h3>
               <p>
-                Next, we will connect this dashboard to the real-time CodeMirror
-                editor and WebSocket sync.
+                The editor will connect to WebSocket sync after a document is
+                selected.
               </p>
             </div>
           )}
         </div>
+
+        {status && <p style={styles.status}>{status}</p>}
       </section>
     </main>
   );
@@ -330,6 +599,11 @@ const styles = {
     justifyContent: "space-between",
     gap: "20px",
     alignItems: "flex-start"
+  },
+  headerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px"
   },
   badge: {
     display: "inline-block",
@@ -400,6 +674,15 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer"
   },
+  aiButton: {
+    border: 0,
+    borderRadius: "12px",
+    padding: "12px 16px",
+    background: "#7c3aed",
+    color: "#ffffff",
+    fontWeight: 700,
+    cursor: "pointer"
+  },
   secondaryButton: {
     border: "1px solid #475569",
     borderRadius: "12px",
@@ -421,8 +704,8 @@ const styles = {
   },
   status: {
     color: "#cbd5e1",
-    margin: "16px 0 0",
-    maxWidth: "420px"
+    margin: "0",
+    maxWidth: "640px"
   },
   documentList: {
     display: "flex",
@@ -470,7 +753,7 @@ const styles = {
     borderRadius: "22px",
     background: "#020617",
     overflow: "hidden",
-    minHeight: "540px"
+    minHeight: "620px"
   },
   editorTopBar: {
     height: "44px",
@@ -492,13 +775,24 @@ const styles = {
     color: "#cbd5e1",
     fontSize: "14px"
   },
-  codeBlock: {
-    margin: 0,
-    padding: "24px",
-    color: "#e2e8f0",
-    fontSize: "15px",
-    lineHeight: 1.7,
-    whiteSpace: "pre-wrap"
+  revisionText: {
+    marginLeft: "auto",
+    color: "#94a3b8",
+    fontSize: "13px"
+  },
+  connectionPill: {
+    border: "1px solid #334155",
+    borderRadius: "999px",
+    padding: "8px 12px",
+    color: "#cbd5e1",
+    background: "#020617",
+    fontSize: "13px"
+  },
+  presencePanel: {
+    borderTop: "1px solid #334155",
+    padding: "14px 18px",
+    color: "#cbd5e1",
+    background: "#111827"
   },
   placeholder: {
     minHeight: "540px",

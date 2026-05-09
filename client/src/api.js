@@ -79,6 +79,18 @@ async function deleteDocument(documentId) {
   });
 }
 
+async function completeCode(codeContext, cursorPosition, language = "javascript") {
+  return apiRequest("/ai/complete", {
+    method: "POST",
+    body: JSON.stringify({
+      code_context: codeContext,
+      cursor_position: cursorPosition,
+      language,
+      instruction: "Complete the code at the cursor position."
+    })
+  });
+}
+
 export {
   getAuthToken,
   setAuthToken,
@@ -88,5 +100,6 @@ export {
   getCurrentUser,
   listDocuments,
   createDocument,
-  deleteDocument
+  deleteDocument,
+  completeCode
 };

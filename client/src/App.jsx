@@ -1,32 +1,280 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  clearAuthToken,
+  createDocument,
+  deleteDocument,
+  getAuthToken,
+  getCurrentUser,
+  listDocuments,
+  login,
+  register
+} from "./api";
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [documents, setDocuments] = useState([]);
+  const [authMode, setAuthMode] = useState("login");
+  const [email, setEmail] = useState("test@example.com");
+  const [password, setPassword] = useState("password123");
+  const [newTitle, setNewTitle] = useState("Untitled JavaScript File");
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [status, setStatus] = useState("Checking session...");
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    async function loadSession() {
+      if (!getAuthToken()) {
+        setStatus("Please login or create an account.");
+        return;
+      }
+
+      try {
+        const data = await getCurrentUser();
+        setUser(data.user);
+        setStatus("Session restored.");
+        await loadDocuments();
+      } catch (error) {
+        clearAuthToken();
+        setStatus("Session expired. Please login again.");
+      }
+    }
+
+    loadSession();
+  }, []);
+
+  async function loadDocuments() {
+    const data = await listDocuments();
+    setDocuments(data.documents);
+  }
+
+  async function handleAuth(event) {
+    event.preventDefault();
+    setIsLoading(true);
+    setStatus("");
+
+    try {
+      const data =
+        authMode === "login"
+          ? await login(email, password)
+          : await register(email, password);
+
+      setUser(data.user);
+      setStatus(authMode === "login" ? "Login successful." : "Account created.");
+      await loadDocuments();
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleCreateDocument(event) {
+    event.preventDefault();
+
+    if (!newTitle.trim()) {
+      setStatus("Document title is required.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const data = await createDocument(
+        newTitle,
+        'function helloWorld() {\n  console.log("Hello from Collab Code Editor");\n}'
+      );
+
+      setSelectedDocument(data.document);
+      setNewTitle("Untitled JavaScript File");
+      setStatus("Document created successfully.");
+      await loadDocuments();
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleDeleteDocument(documentId) {
+    setIsLoading(true);
+
+    try {
+      await deleteDocument(documentId);
+
+      if (selectedDocument?.id === documentId) {
+        setSelectedDocument(null);
+      }
+
+      setStatus("Document deleted successfully.");
+      await loadDocuments();
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function handleLogout() {
+    clearAuthToken();
+    setUser(null);
+    setDocuments([]);
+    setSelectedDocument(null);
+    setStatus("Logged out.");
+  }
+
+  if (!user) {
+    return (
+      <main style={styles.page}>
+        <section style={styles.authCard}>
+          <p style={styles.badge}>Project A</p>
+          <h1 style={styles.title}>Collab Code Editor</h1>
+          <p style={styles.description}>
+            Sign in to manage collaborative coding documents with real-time sync
+            and AI assistance.
+          </p>
+
+          <form onSubmit={handleAuth} style={styles.form}>
+            <label style={styles.label}>
+              Email
+              <input
+                style={styles.input}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+              />
+            </label>
+
+            <label style={styles.label}>
+              Password
+              <input
+                style={styles.input}
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Minimum 8 characters"
+              />
+            </label>
+
+            <button style={styles.primaryButton} disabled={isLoading}>
+              {isLoading
+                ? "Please wait..."
+                : authMode === "login"
+                  ? "Login"
+                  : "Create Account"}
+            </button>
+          </form>
+
+          <button
+            style={styles.linkButton}
+            onClick={() =>
+              setAuthMode(authMode === "login" ? "register" : "login")
+            }
+          >
+            {authMode === "login"
+              ? "Need an account? Register"
+              : "Already have an account? Login"}
+          </button>
+
+          {status && <p style={styles.status}>{status}</p>}
+        </section>
+      </main>
+    );
+  }
+
   return (
-    <main style={styles.page}>
-      <section style={styles.card}>
-        <p style={styles.badge}>Project A</p>
-        <h1 style={styles.title}>Real-Time Collaborative Code Editor</h1>
-        <p style={styles.description}>
-          This app will support live collaborative code editing, document
-          management, WebSocket sync, cursor presence, and AI assistance.
-        </p>
+    <main style={styles.appShell}>
+      <aside style={styles.sidebar}>
+        <div>
+          <p style={styles.badge}>Project A</p>
+          <h1 style={styles.sidebarTitle}>Documents</h1>
+          <p style={styles.userText}>{user.email}</p>
+        </div>
 
-        <div style={styles.grid}>
-          <div style={styles.feature}>
-            <h2 style={styles.featureTitle}>Frontend</h2>
-            <p style={styles.featureText}>React + CodeMirror editor UI</p>
-          </div>
+        <form onSubmit={handleCreateDocument} style={styles.createForm}>
+          <input
+            style={styles.input}
+            value={newTitle}
+            onChange={(event) => setNewTitle(event.target.value)}
+            placeholder="New document title"
+          />
+          <button style={styles.primaryButton} disabled={isLoading}>
+            Create Document
+          </button>
+        </form>
 
-          <div style={styles.feature}>
-            <h2 style={styles.featureTitle}>Backend</h2>
-            <p style={styles.featureText}>Node.js REST API + WebSockets</p>
-          </div>
+        <div style={styles.documentList}>
+          {documents.length === 0 ? (
+            <p style={styles.emptyText}>No documents yet. Create one above.</p>
+          ) : (
+            documents.map((document) => (
+              <div
+                key={document.id}
+                style={{
+                  ...styles.documentItem,
+                  ...(selectedDocument?.id === document.id
+                    ? styles.documentItemActive
+                    : {})
+                }}
+              >
+                <button
+                  style={styles.documentButton}
+                  onClick={() => setSelectedDocument(document)}
+                >
+                  <strong>{document.title}</strong>
+                  <span>{new Date(document.updated_at).toLocaleString()}</span>
+                </button>
 
-          <div style={styles.feature}>
-            <h2 style={styles.featureTitle}>AI Service</h2>
-            <p style={styles.featureText}>FastAPI + OpenAI + RAG pipeline</p>
+                <button
+                  style={styles.deleteButton}
+                  onClick={() => handleDeleteDocument(document.id)}
+                  disabled={isLoading}
+                >
+                  Delete
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        <button style={styles.secondaryButton} onClick={handleLogout}>
+          Logout
+        </button>
+      </aside>
+
+      <section style={styles.workspace}>
+        <header style={styles.workspaceHeader}>
+          <div>
+            <p style={styles.badge}>Dashboard</p>
+            <h2 style={styles.workspaceTitle}>
+              {selectedDocument ? selectedDocument.title : "Select a document"}
+            </h2>
           </div>
+          <p style={styles.status}>{status}</p>
+        </header>
+
+        <div style={styles.editorPreview}>
+          {selectedDocument ? (
+            <>
+              <div style={styles.editorTopBar}>
+                <span style={styles.dot}></span>
+                <span style={styles.dot}></span>
+                <span style={styles.dot}></span>
+                <span style={styles.fileName}>{selectedDocument.title}</span>
+              </div>
+              <pre style={styles.codeBlock}>
+                {selectedDocument.content || "// Empty document"}
+              </pre>
+            </>
+          ) : (
+            <div style={styles.placeholder}>
+              <h3>Frontend dashboard is ready.</h3>
+              <p>
+                Next, we will connect this dashboard to the real-time CodeMirror
+                editor and WebSocket sync.
+              </p>
+            </div>
+          )}
         </div>
       </section>
     </main>
@@ -36,64 +284,231 @@ function App() {
 const styles = {
   page: {
     minHeight: "100vh",
-    margin: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
-    background: "#111827",
-    color: "#f9fafb",
+    background: "#0f172a",
+    color: "#f8fafc",
     padding: "24px"
   },
-  card: {
+  authCard: {
     width: "100%",
-    maxWidth: "900px",
-    background: "#1f2937",
-    border: "1px solid #374151",
-    borderRadius: "20px",
-    padding: "40px",
-    boxShadow: "0 20px 60px rgba(0, 0, 0, 0.35)"
+    maxWidth: "480px",
+    background: "#111827",
+    border: "1px solid #334155",
+    borderRadius: "22px",
+    padding: "36px",
+    boxShadow: "0 24px 70px rgba(0, 0, 0, 0.38)"
+  },
+  appShell: {
+    minHeight: "100vh",
+    display: "grid",
+    gridTemplateColumns: "360px 1fr",
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
+    background: "#0f172a",
+    color: "#f8fafc"
+  },
+  sidebar: {
+    borderRight: "1px solid #334155",
+    background: "#111827",
+    padding: "24px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "24px"
+  },
+  workspace: {
+    padding: "28px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px"
+  },
+  workspaceHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "20px",
+    alignItems: "flex-start"
   },
   badge: {
     display: "inline-block",
-    margin: "0 0 16px",
+    margin: "0 0 12px",
     padding: "6px 12px",
     borderRadius: "999px",
     background: "#2563eb",
     color: "#ffffff",
     fontWeight: 700,
-    fontSize: "14px"
+    fontSize: "13px"
   },
   title: {
-    margin: "0 0 16px",
-    fontSize: "42px",
+    margin: "0 0 12px",
+    fontSize: "38px",
     lineHeight: 1.1
   },
+  sidebarTitle: {
+    margin: 0,
+    fontSize: "30px"
+  },
+  workspaceTitle: {
+    margin: 0,
+    fontSize: "32px"
+  },
   description: {
-    margin: "0 0 28px",
-    color: "#d1d5db",
-    fontSize: "18px",
+    margin: "0 0 26px",
+    color: "#cbd5e1",
     lineHeight: 1.6
   },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  userText: {
+    color: "#cbd5e1",
+    margin: "8px 0 0"
+  },
+  form: {
+    display: "flex",
+    flexDirection: "column",
     gap: "16px"
   },
-  feature: {
-    border: "1px solid #374151",
+  createForm: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px"
+  },
+  label: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    color: "#e2e8f0",
+    fontWeight: 600
+  },
+  input: {
+    width: "100%",
+    boxSizing: "border-box",
+    border: "1px solid #475569",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    background: "#020617",
+    color: "#f8fafc",
+    outline: "none",
+    fontSize: "15px"
+  },
+  primaryButton: {
+    border: 0,
+    borderRadius: "12px",
+    padding: "12px 16px",
+    background: "#2563eb",
+    color: "#ffffff",
+    fontWeight: 700,
+    cursor: "pointer"
+  },
+  secondaryButton: {
+    border: "1px solid #475569",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    background: "transparent",
+    color: "#f8fafc",
+    fontWeight: 700,
+    cursor: "pointer",
+    marginTop: "auto"
+  },
+  linkButton: {
+    border: 0,
+    background: "transparent",
+    color: "#93c5fd",
+    cursor: "pointer",
+    marginTop: "18px",
+    padding: 0,
+    fontWeight: 700
+  },
+  status: {
+    color: "#cbd5e1",
+    margin: "16px 0 0",
+    maxWidth: "420px"
+  },
+  documentList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    overflowY: "auto"
+  },
+  documentItem: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    gap: "8px",
+    border: "1px solid #334155",
     borderRadius: "14px",
-    padding: "20px",
+    background: "#020617",
+    padding: "10px"
+  },
+  documentItemActive: {
+    borderColor: "#60a5fa"
+  },
+  documentButton: {
+    border: 0,
+    background: "transparent",
+    color: "#f8fafc",
+    textAlign: "left",
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column",
+    gap: "5px"
+  },
+  deleteButton: {
+    border: "1px solid #7f1d1d",
+    borderRadius: "10px",
+    background: "#450a0a",
+    color: "#fecaca",
+    cursor: "pointer",
+    padding: "8px 10px"
+  },
+  emptyText: {
+    color: "#94a3b8",
+    lineHeight: 1.5
+  },
+  editorPreview: {
+    flex: 1,
+    border: "1px solid #334155",
+    borderRadius: "22px",
+    background: "#020617",
+    overflow: "hidden",
+    minHeight: "540px"
+  },
+  editorTopBar: {
+    height: "44px",
+    borderBottom: "1px solid #334155",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "0 16px",
     background: "#111827"
   },
-  featureTitle: {
-    margin: "0 0 8px",
-    fontSize: "20px"
+  dot: {
+    width: "12px",
+    height: "12px",
+    borderRadius: "50%",
+    background: "#64748b"
   },
-  featureText: {
+  fileName: {
+    marginLeft: "12px",
+    color: "#cbd5e1",
+    fontSize: "14px"
+  },
+  codeBlock: {
     margin: 0,
-    color: "#d1d5db"
+    padding: "24px",
+    color: "#e2e8f0",
+    fontSize: "15px",
+    lineHeight: 1.7,
+    whiteSpace: "pre-wrap"
+  },
+  placeholder: {
+    minHeight: "540px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#cbd5e1",
+    textAlign: "center",
+    padding: "24px"
   }
 };
 

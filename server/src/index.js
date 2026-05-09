@@ -5,6 +5,7 @@ require("dotenv").config();
 
 const authRoutes = require("./authRoutes");
 const documentRoutes = require("./documentRoutes");
+const aiRoutes = require("./aiRoutes");
 const { setupWebSocketServer } = require("./websocketServer");
 
 const app = express();
@@ -25,6 +26,7 @@ app.get("/health", (req, res) => {
 
 app.use("/auth", authRoutes);
 app.use("/documents", documentRoutes);
+app.use("/ai", aiRoutes);
 
 const server = http.createServer(app);
 

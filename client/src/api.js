@@ -79,6 +79,16 @@ async function deleteDocument(documentId) {
   });
 }
 
+async function listDocumentHistory(documentId) {
+  return apiRequest(`/documents/${documentId}/history`);
+}
+
+async function restoreDocumentSnapshot(documentId, snapshotId) {
+  return apiRequest(`/documents/${documentId}/restore/${snapshotId}`, {
+    method: "POST"
+  });
+}
+
 async function indexCodebase(codebaseId, files) {
   return apiRequest("/ai/index", {
     method: "POST",
@@ -101,7 +111,8 @@ async function completeCode(
       code_context: codeContext,
       cursor_position: cursorPosition,
       language,
-      instruction: "Complete the code at the cursor position using indexed codebase context.",
+      instruction:
+        "Complete the code at the cursor position using indexed codebase context.",
       codebase_id: codebaseId
     })
   });
@@ -149,6 +160,8 @@ export {
   listDocuments,
   createDocument,
   deleteDocument,
+  listDocumentHistory,
+  restoreDocumentSnapshot,
   indexCodebase,
   completeCode,
   explainCode,

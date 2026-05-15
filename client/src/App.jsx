@@ -12,9 +12,11 @@ import {
   getAuthToken,
   getCurrentUser,
   indexCodebase,
+  listDocumentHistory,
   listDocuments,
   login,
-  register
+  register,
+  restoreDocumentSnapshot
 } from "./api";
 
 const WS_URL = "ws://localhost:5000";
@@ -115,6 +117,9 @@ function App() {
   );
   const [lastIndexedCodebaseId, setLastIndexedCodebaseId] = useState(null);
 
+  const [snapshots, setSnapshots] = useState([]);
+  const [historyStatus, setHistoryStatus] = useState("No history loaded yet.");
+
   const wsRef = useRef(null);
   const editorValueRef = useRef("");
   const suppressChangeRef = useRef(false);
@@ -182,7 +187,15 @@ function App() {
 
       if (message.type === "OPERATION_ACK") {
         setRevision(message.revision);
-        setStatus(`Saved at revision ${message.revision}.`);
+
+        if (message.snapshot_created) {
+          setStatus(
+            `Saved at revision ${message.revision}. Snapshot created.`
+          );
+          loadHistory(selectedDocument.id);
+        } else {
+          setStatus(`Saved at revision ${message.revision}.`);
+        }
       }
 
       if (message.type === "REMOTE_OPERATION") {
@@ -250,6 +263,25 @@ function App() {
     setDocuments(data.documents);
   }
 
+  async function loadHistory(documentId = selectedDocument?.id) {
+    if (!documentId) {
+      setHistoryStatus("Select a document before loading history.");
+      return;
+    }
+
+    try {
+      const data = await listDocumentHistory(documentId);
+      setSnapshots(data.snapshots || []);
+      setHistoryStatus(
+        data.snapshots?.length
+          ? `Loaded ${data.snapshots.length} snapshot(s).`
+          : "No snapshots yet. Snapshots are created every 50 operations."
+      );
+    } catch (error) {
+      setHistoryStatus(error.message);
+    }
+  }
+
   async function handleAuth(event) {
     event.preventDefault();
     setIsLoading(true);
@@ -290,6 +322,8 @@ function App() {
       setSelectedDocument(data.document);
       setNewTitle("Untitled JavaScript File");
       setStatus("Document created successfully.");
+      setSnapshots([]);
+      setHistoryStatus("No history loaded yet.");
       await loadDocuments();
     } catch (error) {
       setStatus(error.message);
@@ -309,12 +343,48 @@ function App() {
         setEditorValue("");
         setAiOutput("");
         setRagReferences([]);
+        setSnapshots([]);
+        setHistoryStatus("No history loaded yet.");
       }
 
       setStatus("Document deleted successfully.");
       await loadDocuments();
     } catch (error) {
       setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleRestoreSnapshot(snapshotId) {
+    if (!selectedDocument) {
+      setStatus("Select a document before restoring history.");
+      return;
+    }
+
+    setIsLoading(true);
+    setHistoryStatus("Restoring snapshot...");
+
+    try {
+      const data = await restoreDocumentSnapshot(selectedDocument.id, snapshotId);
+
+      suppressChangeRef.current = true;
+      setSelectedDocument(data.document);
+      setEditorValue(data.document.content || "");
+      editorValueRef.current = data.document.content || "";
+      setStatus(
+        `Restored from snapshot revision ${data.restored_from.revision}.`
+      );
+      setHistoryStatus("Snapshot restored successfully.");
+
+      setTimeout(() => {
+        suppressChangeRef.current = false;
+      }, 0);
+
+      await loadDocuments();
+      await loadHistory(selectedDocument.id);
+    } catch (error) {
+      setHistoryStatus(error.message);
     } finally {
       setIsLoading(false);
     }
@@ -533,6 +603,8 @@ function App() {
     setAiOutput("");
     setRagReferences([]);
     setLastIndexedCodebaseId(null);
+    setSnapshots([]);
+    setHistoryStatus("No history loaded yet.");
     setStatus("Logged out.");
   }
 
@@ -637,6 +709,8 @@ function App() {
                     setAiOutput("");
                     setRagReferences([]);
                     setLastIndexedCodebaseId(null);
+                    setSnapshots([]);
+                    setHistoryStatus("No history loaded yet.");
                   }}
                 >
                   <strong>{document.title}</strong>
@@ -677,6 +751,13 @@ function App() {
               disabled={!selectedDocument || isLoading}
             >
               Index for RAG
+            </button>
+            <button
+              style={styles.secondarySmallButton}
+              onClick={() => loadHistory()}
+              disabled={!selectedDocument || isLoading}
+            >
+              Load History
             </button>
             <button
               style={styles.aiButton}
@@ -805,11 +886,50 @@ function App() {
               <p>{formatRagReferences(ragReferences)}</p>
             </div>
 
+            <div style={styles.historyBox}>
+              <div style={styles.historyHeader}>
+                <strong>Version History</strong>
+                <button
+                  style={styles.historyRefreshButton}
+                  onClick={() => loadHistory()}
+                  disabled={!selectedDocument || isLoading}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              <p style={styles.historyStatus}>{historyStatus}</p>
+
+              {snapshots.length === 0 ? (
+                <p style={styles.emptyText}>
+                  No snapshots loaded. Snapshots are created every 50 operations.
+                </p>
+              ) : (
+                snapshots.map((snapshot) => (
+                  <div key={snapshot.id} style={styles.snapshotItem}>
+                    <strong>Revision {snapshot.revision}</strong>
+                    <span>
+                      {new Date(snapshot.created_at).toLocaleString()}
+                    </span>
+                    <p>{snapshot.preview || "No preview available."}</p>
+                    <button
+                      style={styles.restoreButton}
+                      onClick={() => handleRestoreSnapshot(snapshot.id)}
+                      disabled={isLoading}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
             <div style={styles.tipBox}>
-              <strong>How to test:</strong>
+              <strong>How to test history:</strong>
               <p>
-                Click “Index for RAG”, select a few lines in the editor, click
-                “Explain Selection”, then ask a question in the chat box.
+                Snapshots are saved every 50 WebSocket operations. Use AI
+                Complete or typing to increase revisions, then click Load
+                History.
               </p>
             </div>
           </aside>
@@ -880,7 +1000,7 @@ const styles = {
   },
   mainGrid: {
     display: "grid",
-    gridTemplateColumns: "1fr 360px",
+    gridTemplateColumns: "1fr 380px",
     gap: "18px",
     alignItems: "stretch"
   },
@@ -1033,7 +1153,8 @@ const styles = {
   },
   emptyText: {
     color: "#94a3b8",
-    lineHeight: 1.5
+    lineHeight: 1.5,
+    margin: "8px 0 0"
   },
   editorPreview: {
     flex: 1,
@@ -1100,7 +1221,9 @@ const styles = {
     padding: "18px",
     display: "flex",
     flexDirection: "column",
-    gap: "16px"
+    gap: "16px",
+    maxHeight: "760px",
+    overflowY: "auto"
   },
   aiTabs: {
     display: "flex",
@@ -1164,6 +1287,53 @@ const styles = {
     padding: "14px",
     color: "#cbd5e1",
     lineHeight: 1.5
+  },
+  historyBox: {
+    border: "1px solid #334155",
+    borderRadius: "16px",
+    background: "#020617",
+    padding: "14px",
+    color: "#cbd5e1",
+    lineHeight: 1.5
+  },
+  historyHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "8px"
+  },
+  historyRefreshButton: {
+    border: "1px solid #475569",
+    borderRadius: "10px",
+    padding: "7px 10px",
+    background: "#111827",
+    color: "#f8fafc",
+    cursor: "pointer",
+    fontWeight: 700
+  },
+  historyStatus: {
+    color: "#94a3b8",
+    margin: "8px 0"
+  },
+  snapshotItem: {
+    border: "1px solid #334155",
+    borderRadius: "12px",
+    padding: "10px",
+    marginTop: "10px",
+    background: "#111827",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px"
+  },
+  restoreButton: {
+    border: 0,
+    borderRadius: "10px",
+    padding: "8px 10px",
+    background: "#059669",
+    color: "#ffffff",
+    fontWeight: 700,
+    cursor: "pointer",
+    width: "fit-content"
   },
   tipBox: {
     border: "1px solid #475569",

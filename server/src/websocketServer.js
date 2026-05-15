@@ -17,8 +17,10 @@ const {
   removePresence,
   getPresenceList
 } = require("./presenceStore");
+const { createDocumentSnapshot } = require("./snapshotStore");
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const SNAPSHOT_INTERVAL = 50;
 
 const documentRooms = new Map();
 
@@ -60,6 +62,24 @@ async function canAccessDocument(documentId, userId) {
   );
 
   return result.rows.length > 0;
+}
+
+async function maybeCreateSnapshot({
+  documentId,
+  content,
+  revision,
+  createdBy
+}) {
+  if (revision <= 0 || revision % SNAPSHOT_INTERVAL !== 0) {
+    return null;
+  }
+
+  return createDocumentSnapshot({
+    documentId,
+    content,
+    revision,
+    createdBy
+  });
 }
 
 async function handleJoinDocument(ws, message) {
@@ -182,6 +202,13 @@ async function handleOperation(ws, message) {
     operationRecord
   );
 
+  const snapshot = await maybeCreateSnapshot({
+    documentId,
+    content: updatedDocument.content,
+    revision: serverRevisionAfterAppend,
+    createdBy: ws.user.userId
+  });
+
   const payload = {
     type: "REMOTE_OPERATION",
     documentId,
@@ -196,7 +223,14 @@ async function handleOperation(ws, message) {
     type: "OPERATION_ACK",
     revision: serverRevisionAfterAppend,
     operation: transformedOperation,
-    document: updatedDocument
+    document: updatedDocument,
+    snapshot_created: snapshot
+      ? {
+          id: snapshot.id,
+          revision: snapshot.revision,
+          created_at: snapshot.created_at
+        }
+      : null
   });
 }
 
@@ -260,7 +294,7 @@ function setupWebSocketServer(server) {
           type: "ERROR",
           error: `Unknown message type: ${message.type}`
         });
-            } catch (error) {
+      } catch (error) {
         console.error("WebSocket message handling error:", error);
         console.error(error.stack);
 

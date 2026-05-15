@@ -44,30 +44,62 @@ function applySimpleOperation(content, operation) {
   return content;
 }
 
-function getInsertOperation(previousValue, nextValue) {
-  if (nextValue.length <= previousValue.length) {
+function getSimpleOperation(previousValue, nextValue) {
+  if (previousValue === nextValue) {
     return null;
   }
 
-  let index = 0;
+  let start = 0;
 
   while (
-    index < previousValue.length &&
-    previousValue[index] === nextValue[index]
+    start < previousValue.length &&
+    start < nextValue.length &&
+    previousValue[start] === nextValue[start]
   ) {
-    index += 1;
+    start += 1;
   }
 
-  const insertedText = nextValue.slice(
-    index,
-    index + nextValue.length - previousValue.length
-  );
+  let previousEnd = previousValue.length - 1;
+  let nextEnd = nextValue.length - 1;
 
-  return {
-    type: "insert",
-    position: index,
-    text: insertedText
-  };
+  while (
+    previousEnd >= start &&
+    nextEnd >= start &&
+    previousValue[previousEnd] === nextValue[nextEnd]
+  ) {
+    previousEnd -= 1;
+    nextEnd -= 1;
+  }
+
+  const removedText = previousValue.slice(start, previousEnd + 1);
+  const insertedText = nextValue.slice(start, nextEnd + 1);
+
+  if (removedText.length > 0 && insertedText.length === 0) {
+    return {
+      type: "delete",
+      position: start,
+      length: removedText.length
+    };
+  }
+
+  if (removedText.length === 0 && insertedText.length > 0) {
+    return {
+      type: "insert",
+      position: start,
+      text: insertedText
+    };
+  }
+
+  if (removedText.length > 0 && insertedText.length > 0) {
+    return {
+      type: "replace",
+      position: start,
+      length: removedText.length,
+      text: insertedText
+    };
+  }
+
+  return null;
 }
 
 function getCodebaseId(user, document) {
@@ -189,9 +221,7 @@ function App() {
         setRevision(message.revision);
 
         if (message.snapshot_created) {
-          setStatus(
-            `Saved at revision ${message.revision}. Snapshot created.`
-          );
+          setStatus(`Saved at revision ${message.revision}. Snapshot created.`);
           loadHistory(selectedDocument.id);
         } else {
           setStatus(`Saved at revision ${message.revision}.`);
@@ -372,9 +402,7 @@ function App() {
       setSelectedDocument(data.document);
       setEditorValue(data.document.content || "");
       editorValueRef.current = data.document.content || "";
-      setStatus(
-        `Restored from snapshot revision ${data.restored_from.revision}.`
-      );
+      setStatus(`Restored from snapshot revision ${data.restored_from.revision}.`);
       setHistoryStatus("Snapshot restored successfully.");
 
       setTimeout(() => {
@@ -408,13 +436,18 @@ function App() {
     }
 
     const previousValue = editorValueRef.current;
-    const operation = getInsertOperation(previousValue, nextValue);
+    const operation = getSimpleOperation(previousValue, nextValue);
 
     setEditorValue(nextValue);
     editorValueRef.current = nextValue;
 
     if (!operation) {
-      setStatus("Only insert operations are synced in this prototype UI.");
+      setStatus("No syncable editor operation detected.");
+      return;
+    }
+
+    if (operation.type === "replace") {
+      setStatus("Replace operations are not synced yet. Use insert/delete edits.");
       return;
     }
 
@@ -908,9 +941,7 @@ function App() {
                 snapshots.map((snapshot) => (
                   <div key={snapshot.id} style={styles.snapshotItem}>
                     <strong>Revision {snapshot.revision}</strong>
-                    <span>
-                      {new Date(snapshot.created_at).toLocaleString()}
-                    </span>
+                    <span>{new Date(snapshot.created_at).toLocaleString()}</span>
                     <p>{snapshot.preview || "No preview available."}</p>
                     <button
                       style={styles.restoreButton}

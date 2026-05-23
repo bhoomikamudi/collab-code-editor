@@ -1,4 +1,23 @@
+import axios from "axios";
+
 const API_BASE_URL = "http://localhost:5000";
+
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    "Content-Type": "application/json"
+  }
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = getAuthToken();
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  return config;
+});
 
 function getAuthToken() {
   return localStorage.getItem("authToken");
@@ -12,36 +31,49 @@ function clearAuthToken() {
   localStorage.removeItem("authToken");
 }
 
+function normalizeErrorMessage(error) {
+  const data = error.response?.data;
+
+  if (typeof data?.error === "string") {
+    return data.error;
+  }
+
+  if (typeof data?.detail === "string") {
+    return data.detail;
+  }
+
+  if (Array.isArray(data?.detail)) {
+    return data.detail
+      .map((item) => item?.msg || item?.message || String(item))
+      .join(", ");
+  }
+
+  if (typeof data?.message === "string") {
+    return data.message;
+  }
+
+  return error.message || "Request failed";
+}
+
 async function apiRequest(path, options = {}) {
-  const token = getAuthToken();
+  try {
+    const response = await apiClient.request({
+      url: path,
+      method: options.method || "GET",
+      data: options.data,
+      headers: options.headers
+    });
 
-  const headers = {
-    "Content-Type": "application/json",
-    ...(options.headers || {})
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+    return response.data;
+  } catch (error) {
+    throw new Error(normalizeErrorMessage(error));
   }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || "Request failed");
-  }
-
-  return data;
 }
 
 async function register(email, password) {
   const data = await apiRequest("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password })
+    data: { email, password }
   });
 
   setAuthToken(data.token);
@@ -51,7 +83,7 @@ async function register(email, password) {
 async function login(email, password) {
   const data = await apiRequest("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password })
+    data: { email, password }
   });
 
   setAuthToken(data.token);
@@ -69,7 +101,7 @@ async function listDocuments() {
 async function createDocument(title, content = "") {
   return apiRequest("/documents", {
     method: "POST",
-    body: JSON.stringify({ title, content })
+    data: { title, content }
   });
 }
 
@@ -92,10 +124,10 @@ async function restoreDocumentSnapshot(documentId, snapshotId) {
 async function indexCodebase(codebaseId, files) {
   return apiRequest("/ai/index", {
     method: "POST",
-    body: JSON.stringify({
+    data: {
       codebase_id: codebaseId,
       files
-    })
+    }
   });
 }
 
@@ -107,14 +139,14 @@ async function completeCode(
 ) {
   return apiRequest("/ai/complete", {
     method: "POST",
-    body: JSON.stringify({
+    data: {
       code_context: codeContext,
       cursor_position: cursorPosition,
       language,
       instruction:
         "Complete the code at the cursor position using indexed codebase context.",
       codebase_id: codebaseId
-    })
+    }
   });
 }
 
@@ -125,11 +157,11 @@ async function explainCode(
 ) {
   return apiRequest("/ai/explain", {
     method: "POST",
-    body: JSON.stringify({
+    data: {
       selected_code: selectedCode,
       language,
       codebase_id: codebaseId
-    })
+    }
   });
 }
 
@@ -141,12 +173,12 @@ async function chatWithCodebase(
 ) {
   return apiRequest("/ai/chat", {
     method: "POST",
-    body: JSON.stringify({
+    data: {
       question,
       code_context: codeContext,
       language,
       codebase_id: codebaseId
-    })
+    }
   });
 }
 

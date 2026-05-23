@@ -18,6 +18,10 @@ const {
   getPresenceList
 } = require("./presenceStore");
 const { createDocumentSnapshot } = require("./snapshotStore");
+const {
+  initPubSub,
+  publishCollaborationEvent
+} = require("./pubsub");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const SNAPSHOT_INTERVAL = 50;
@@ -50,6 +54,30 @@ function broadcastToRoom(documentId, senderWs, payload) {
       sendJson(client, payload);
     }
   });
+}
+
+// Broadcast to every local client in the room. Used for events received from
+// other server instances via Redis pub/sub (the originating client lives elsewhere).
+function broadcastToRoomAll(documentId, payload) {
+  const room = documentRooms.get(documentId);
+
+  if (!room) {
+    return;
+  }
+
+  room.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      sendJson(client, payload);
+    }
+  });
+}
+
+async function publishRoomEvent(documentId, payload) {
+  try {
+    await publishCollaborationEvent(documentId, payload);
+  } catch (error) {
+    console.error("Failed to publish collaboration event:", error.message);
+  }
 }
 
 async function canAccessDocument(documentId, userId) {
@@ -126,10 +154,13 @@ async function handleJoinDocument(ws, message) {
     presence: activeUsers
   });
 
-  broadcastToRoom(documentId, ws, {
+  const userJoinedPayload = {
     type: "USER_JOINED",
     presence: initialPresence
-  });
+  };
+
+  broadcastToRoom(documentId, ws, userJoinedPayload);
+  await publishRoomEvent(documentId, userJoinedPayload);
 }
 
 async function handleOperation(ws, message) {
@@ -218,6 +249,7 @@ async function handleOperation(ws, message) {
   };
 
   broadcastToRoom(documentId, ws, payload);
+  await publishRoomEvent(documentId, payload);
 
   return sendJson(ws, {
     type: "OPERATION_ACK",
@@ -248,10 +280,13 @@ async function handleCursor(ws, message) {
     message.cursor || {}
   );
 
-  broadcastToRoom(ws.documentId, ws, {
+  const cursorPayload = {
     type: "CURSOR_UPDATE",
     presence
-  });
+  };
+
+  broadcastToRoom(ws.documentId, ws, cursorPayload);
+  await publishRoomEvent(ws.documentId, cursorPayload);
 
   return sendJson(ws, {
     type: "CURSOR_ACK",
@@ -261,6 +296,14 @@ async function handleCursor(ws, message) {
 
 function setupWebSocketServer(server) {
   const wss = new WebSocket.Server({ server });
+
+  // Redis pub/sub enables horizontal scaling: collaboration events published by
+  // one Node instance are relayed to WebSocket clients connected to other instances.
+  initPubSub((event) => {
+    broadcastToRoomAll(event.documentId, event.payload);
+  }).catch((error) => {
+    console.error("Failed to initialize Redis pub/sub:", error.message);
+  });
 
   wss.on("connection", (ws) => {
     ws.user = null;
@@ -313,13 +356,16 @@ function setupWebSocketServer(server) {
         if (ws.user) {
           await removePresence(ws.documentId, ws.user.userId);
 
-          broadcastToRoom(ws.documentId, ws, {
+          const userLeftPayload = {
             type: "USER_LEFT",
             user: {
               userId: ws.user.userId,
               email: ws.user.email
             }
-          });
+          };
+
+          broadcastToRoom(ws.documentId, ws, userLeftPayload);
+          await publishRoomEvent(ws.documentId, userLeftPayload);
         }
 
         if (room.size === 0) {

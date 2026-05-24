@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
+import "./index.css";
 import {
   chatWithCodebase,
   clearAuthToken,
@@ -643,30 +644,34 @@ function App() {
 
   if (!user) {
     return (
-      <main style={styles.page}>
-        <section style={styles.authCard}>
-          <p style={styles.badge}>Project A</p>
-          <h1 style={styles.title}>Collab Code Editor</h1>
-          <p style={styles.description}>
+      <main className="flex min-h-screen items-center justify-center bg-slate-900 p-6 font-sans text-slate-50">
+        <section className="w-full max-w-md rounded-3xl border border-slate-700 bg-gray-900 p-9 shadow-panel">
+          <p className="mb-3 inline-block rounded-full bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">
+            Project A
+          </p>
+          <h1 className="mb-3 text-4xl font-bold leading-tight">
+            Collab Code Editor
+          </h1>
+          <p className="mb-6 leading-relaxed text-slate-300">
             Sign in to manage collaborative coding documents with real-time sync
             and AI assistance.
           </p>
 
-          <form onSubmit={handleAuth} style={styles.form}>
-            <label style={styles.label}>
+          <form onSubmit={handleAuth} className="flex flex-col gap-4">
+            <label className="flex flex-col gap-2 font-semibold text-slate-200">
               Email
               <input
-                style={styles.input}
+                className="input-field"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="you@example.com"
               />
             </label>
 
-            <label style={styles.label}>
+            <label className="flex flex-col gap-2 font-semibold text-slate-200">
               Password
               <input
-                style={styles.input}
+                className="input-field"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -674,7 +679,7 @@ function App() {
               />
             </label>
 
-            <button style={styles.primaryButton} disabled={isLoading}>
+            <button className="btn-primary" disabled={isLoading}>
               {isLoading
                 ? "Please wait..."
                 : authMode === "login"
@@ -684,7 +689,7 @@ function App() {
           </form>
 
           <button
-            style={styles.linkButton}
+            className="mt-4 border-0 bg-transparent p-0 font-bold text-blue-300 transition hover:text-blue-200"
             onClick={() =>
               setAuthMode(authMode === "login" ? "register" : "login")
             }
@@ -694,49 +699,52 @@ function App() {
               : "Already have an account? Login"}
           </button>
 
-          {status && <p style={styles.status}>{status}</p>}
+          {status && <p className="mt-4 text-slate-300">{status}</p>}
         </section>
       </main>
     );
   }
 
   return (
-    <main style={styles.appShell}>
-      <aside style={styles.sidebar}>
+    <main className="grid min-h-screen grid-cols-[340px_1fr] bg-slate-900 font-sans text-slate-50">
+      <aside className="flex flex-col gap-6 border-r border-slate-700 bg-gray-900 p-6">
         <div>
-          <p style={styles.badge}>Project A</p>
-          <h1 style={styles.sidebarTitle}>Documents</h1>
-          <p style={styles.userText}>{user.email}</p>
+          <p className="mb-3 inline-block rounded-full bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">
+            Project A
+          </p>
+          <h1 className="text-3xl font-bold">Documents</h1>
+          <p className="mt-2 text-slate-300">{user.email}</p>
         </div>
 
-        <form onSubmit={handleCreateDocument} style={styles.createForm}>
+        <form onSubmit={handleCreateDocument} className="flex flex-col gap-3">
           <input
-            style={styles.input}
+            className="input-field"
             value={newTitle}
             onChange={(event) => setNewTitle(event.target.value)}
             placeholder="New document title"
           />
-          <button style={styles.primaryButton} disabled={isLoading}>
+          <button className="btn-primary" disabled={isLoading}>
             Create Document
           </button>
         </form>
 
-        <div style={styles.documentList}>
+        <div className="flex flex-col gap-3 overflow-y-auto">
           {documents.length === 0 ? (
-            <p style={styles.emptyText}>No documents yet. Create one above.</p>
+            <p className="mt-2 leading-normal text-slate-400">
+              No documents yet. Create one above.
+            </p>
           ) : (
             documents.map((document) => (
               <div
                 key={document.id}
-                style={{
-                  ...styles.documentItem,
-                  ...(selectedDocument?.id === document.id
-                    ? styles.documentItemActive
-                    : {})
-                }}
+                className={`grid grid-cols-[1fr_auto] gap-2 rounded-2xl border bg-slate-950 p-2.5 ${
+                  selectedDocument?.id === document.id
+                    ? "border-blue-400"
+                    : "border-slate-700"
+                }`}
               >
                 <button
-                  style={styles.documentButton}
+                  className="flex cursor-pointer flex-col gap-1 border-0 bg-transparent text-left text-slate-50"
                   onClick={() => {
                     setSelectedDocument(document);
                     setAiOutput("");
@@ -747,11 +755,13 @@ function App() {
                   }}
                 >
                   <strong>{document.title}</strong>
-                  <span>{new Date(document.updated_at).toLocaleString()}</span>
+                  <span className="text-sm text-slate-400">
+                    {new Date(document.updated_at).toLocaleString()}
+                  </span>
                 </button>
 
                 <button
-                  style={styles.deleteButton}
+                  className="cursor-pointer rounded-lg border border-red-900 bg-red-950 px-2.5 py-2 text-red-200 transition hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => handleDeleteDocument(document.id)}
                   disabled={isLoading}
                 >
@@ -762,45 +772,57 @@ function App() {
           )}
         </div>
 
-        <button style={styles.secondaryButton} onClick={handleLogout}>
+        <button className="btn-secondary mt-auto" onClick={handleLogout}>
           Logout
         </button>
       </aside>
 
-      <section style={styles.workspace}>
-        <header style={styles.workspaceHeader}>
+      <section className="flex flex-col gap-5 p-7">
+        <header className="flex items-start justify-between gap-5">
           <div>
-            <p style={styles.badge}>Editor</p>
-            <h2 style={styles.workspaceTitle}>
+            <p className="mb-3 inline-block rounded-full bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">
+              Editor
+            </p>
+            <h2 className="text-3xl font-bold">
               {selectedDocument ? selectedDocument.title : "Select a document"}
             </h2>
           </div>
 
-          <div style={styles.headerRight}>
-            <span style={styles.connectionPill}>{connectionStatus}</span>
+          <div className="flex flex-wrap items-center justify-end gap-2.5">
+            <span
+              className={`rounded-full border px-3 py-2 text-sm ${
+                connectionStatus === "Connected"
+                  ? "border-emerald-700 bg-emerald-950 text-emerald-200"
+                  : connectionStatus === "Connecting..."
+                    ? "border-amber-700 bg-amber-950 text-amber-200"
+                    : "border-slate-700 bg-slate-950 text-slate-300"
+              }`}
+            >
+              {connectionStatus}
+            </span>
             <button
-              style={styles.secondarySmallButton}
+              className="btn-secondary-sm"
               onClick={handleIndexCurrentDocument}
               disabled={!selectedDocument || isLoading}
             >
               Index for RAG
             </button>
             <button
-              style={styles.secondarySmallButton}
+              className="btn-secondary-sm"
               onClick={() => loadHistory()}
               disabled={!selectedDocument || isLoading}
             >
               Load History
             </button>
             <button
-              style={styles.aiButton}
+              className="btn-ai"
               onClick={handleAiComplete}
               disabled={!selectedDocument || isLoading}
             >
               AI Complete
             </button>
             <button
-              style={styles.aiButton}
+              className="btn-ai"
               onClick={handleExplainSelection}
               disabled={!selectedDocument || isLoading}
             >
@@ -809,16 +831,20 @@ function App() {
           </div>
         </header>
 
-        <div style={styles.mainGrid}>
-          <div style={styles.editorPreview}>
+        <div className="grid grid-cols-[1fr_380px] items-stretch gap-[18px]">
+          <div className="min-h-[660px] flex-1 overflow-hidden rounded-3xl border border-slate-700 bg-slate-950">
             {selectedDocument ? (
               <>
-                <div style={styles.editorTopBar}>
-                  <span style={styles.dot}></span>
-                  <span style={styles.dot}></span>
-                  <span style={styles.dot}></span>
-                  <span style={styles.fileName}>{selectedDocument.title}</span>
-                  <span style={styles.revisionText}>Revision {revision}</span>
+                <div className="flex h-11 items-center gap-2 border-b border-slate-700 bg-gray-900 px-4">
+                  <span className="h-3 w-3 rounded-full bg-slate-500" />
+                  <span className="h-3 w-3 rounded-full bg-slate-500" />
+                  <span className="h-3 w-3 rounded-full bg-slate-500" />
+                  <span className="ml-3 text-sm text-slate-300">
+                    {selectedDocument.title}
+                  </span>
+                  <span className="ml-auto text-sm text-slate-400">
+                    Revision {revision}
+                  </span>
                 </div>
 
                 <CodeMirror
@@ -835,7 +861,7 @@ function App() {
                   }}
                 />
 
-                <div style={styles.presencePanel}>
+                <div className="border-t border-slate-700 bg-gray-900 px-4 py-3.5 text-slate-300">
                   <strong>Presence:</strong>{" "}
                   {presence.length === 0
                     ? "No active users"
@@ -843,9 +869,11 @@ function App() {
                 </div>
               </>
             ) : (
-              <div style={styles.placeholder}>
-                <h3>Select a document to start editing.</h3>
-                <p>
+              <div className="flex min-h-[540px] flex-col items-center justify-center p-6 text-center text-slate-300">
+                <h3 className="text-xl font-semibold">
+                  Select a document to start editing.
+                </h3>
+                <p className="mt-2 max-w-md leading-relaxed">
                   The editor will connect to WebSocket sync after a document is
                   selected.
                 </p>
@@ -853,77 +881,65 @@ function App() {
             )}
           </div>
 
-          <aside style={styles.aiPanel}>
-            <p style={styles.badge}>AI Assistant</p>
+          <aside className="flex max-h-[760px] min-h-[660px] flex-col gap-4 overflow-y-auto rounded-3xl border border-slate-700 bg-gray-900 p-4">
+            <p className="inline-block rounded-full bg-blue-600 px-3 py-1.5 text-sm font-bold text-white">
+              AI Assistant
+            </p>
 
-            <div style={styles.aiTabs}>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(aiPanelMode === "completion" ? styles.tabButtonActive : {})
-                }}
-                onClick={() => setAiPanelMode("completion")}
-              >
-                Completion
-              </button>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(aiPanelMode === "explain" ? styles.tabButtonActive : {})
-                }}
-                onClick={() => setAiPanelMode("explain")}
-              >
-                Explain
-              </button>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(aiPanelMode === "chat" ? styles.tabButtonActive : {})
-                }}
-                onClick={() => setAiPanelMode("chat")}
-              >
-                Chat
-              </button>
+            <div className="flex flex-wrap gap-2">
+              {["completion", "explain", "chat"].map((mode) => (
+                <button
+                  key={mode}
+                  className={
+                    aiPanelMode === mode
+                      ? "rounded-full border border-blue-300 bg-blue-700 px-2.5 py-2 font-bold capitalize text-white"
+                      : "rounded-full border border-slate-700 bg-slate-950 px-2.5 py-2 font-bold capitalize text-slate-300 transition hover:border-slate-500"
+                  }
+                  onClick={() => setAiPanelMode(mode)}
+                >
+                  {mode === "completion" ? "Completion" : mode}
+                </button>
+              ))}
             </div>
 
-            <form onSubmit={handleChatSubmit} style={styles.chatForm}>
+            <form onSubmit={handleChatSubmit} className="flex flex-col gap-2.5">
               <textarea
-                style={styles.chatInput}
+                className="input-field min-h-[90px] resize-y text-sm leading-normal"
                 value={chatQuestion}
                 onChange={(event) => setChatQuestion(event.target.value)}
                 placeholder="Ask about this codebase..."
               />
               <button
-                style={styles.primaryButton}
+                className="btn-primary"
                 disabled={!selectedDocument || isLoading}
               >
                 Ask Codebase
               </button>
             </form>
 
-            <div style={styles.aiOutputBox}>
-              <h3 style={styles.aiOutputTitle}>
+            <div className="panel-card min-h-[150px]">
+              <h3 className="mb-2.5 text-lg font-semibold text-slate-50">
                 {aiPanelMode === "completion"
                   ? "Inline Completion"
                   : aiPanelMode === "explain"
                     ? "Selection Explanation"
                     : "Codebase Chat"}
               </h3>
-              <p style={styles.aiOutputText}>
+              <p className="m-0 whitespace-pre-wrap leading-relaxed">
                 {aiOutput || "AI responses will appear here."}
               </p>
             </div>
 
-            <div style={styles.ragBox}>
-              <strong>RAG References</strong>
-              <p>{formatRagReferences(ragReferences)}</p>
+            <div className="panel-card">
+              <strong className="text-slate-50">RAG References</strong>
+              <p className="mt-2">{formatRagReferences(ragReferences)}</p>
             </div>
 
-            <div style={styles.historyBox}>
-              <div style={styles.historyHeader}>
-                <strong>Version History</strong>
+            <div className="panel-card">
+              <div className="flex items-center justify-between gap-2">
+                <strong className="text-slate-50">Version History</strong>
                 <button
-                  style={styles.historyRefreshButton}
+                  className="rounded-lg border border-slate-600 bg-gray-900 px-2.5 py-1.5 text-sm font-bold text-slate-50 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => loadHistory()}
                   disabled={!selectedDocument || isLoading}
                 >
@@ -931,20 +947,25 @@ function App() {
                 </button>
               </div>
 
-              <p style={styles.historyStatus}>{historyStatus}</p>
+              <p className="my-2 text-slate-400">{historyStatus}</p>
 
               {snapshots.length === 0 ? (
-                <p style={styles.emptyText}>
+                <p className="mt-2 leading-normal text-slate-400">
                   No snapshots loaded. Snapshots are created every 50 operations.
                 </p>
               ) : (
                 snapshots.map((snapshot) => (
-                  <div key={snapshot.id} style={styles.snapshotItem}>
+                  <div
+                    key={snapshot.id}
+                    className="mt-2.5 flex flex-col gap-1.5 rounded-xl border border-slate-700 bg-gray-900 p-2.5"
+                  >
                     <strong>Revision {snapshot.revision}</strong>
-                    <span>{new Date(snapshot.created_at).toLocaleString()}</span>
+                    <span className="text-sm text-slate-400">
+                      {new Date(snapshot.created_at).toLocaleString()}
+                    </span>
                     <p>{snapshot.preview || "No preview available."}</p>
                     <button
-                      style={styles.restoreButton}
+                      className="w-fit rounded-lg border-0 bg-emerald-600 px-2.5 py-2 font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => handleRestoreSnapshot(snapshot.id)}
                       disabled={isLoading}
                     >
@@ -955,9 +976,9 @@ function App() {
               )}
             </div>
 
-            <div style={styles.tipBox}>
-              <strong>How to test history:</strong>
-              <p>
+            <div className="panel-card mt-auto border-slate-600 bg-slate-900">
+              <strong className="text-slate-50">How to test history:</strong>
+              <p className="mt-2">
                 Snapshots are saved every 50 WebSocket operations. Use AI
                 Complete or typing to increase revisions, then click Load
                 History.
@@ -966,415 +987,10 @@ function App() {
           </aside>
         </div>
 
-        {status && <p style={styles.status}>{status}</p>}
+        {status && <p className="max-w-[920px] text-slate-300">{status}</p>}
       </section>
     </main>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
-    background: "#0f172a",
-    color: "#f8fafc",
-    padding: "24px"
-  },
-  authCard: {
-    width: "100%",
-    maxWidth: "480px",
-    background: "#111827",
-    border: "1px solid #334155",
-    borderRadius: "22px",
-    padding: "36px",
-    boxShadow: "0 24px 70px rgba(0, 0, 0, 0.38)"
-  },
-  appShell: {
-    minHeight: "100vh",
-    display: "grid",
-    gridTemplateColumns: "340px 1fr",
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
-    background: "#0f172a",
-    color: "#f8fafc"
-  },
-  sidebar: {
-    borderRight: "1px solid #334155",
-    background: "#111827",
-    padding: "24px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "24px"
-  },
-  workspace: {
-    padding: "28px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "20px"
-  },
-  workspaceHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "20px",
-    alignItems: "flex-start"
-  },
-  headerRight: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    flexWrap: "wrap",
-    justifyContent: "flex-end"
-  },
-  mainGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 380px",
-    gap: "18px",
-    alignItems: "stretch"
-  },
-  badge: {
-    display: "inline-block",
-    margin: "0 0 12px",
-    padding: "6px 12px",
-    borderRadius: "999px",
-    background: "#2563eb",
-    color: "#ffffff",
-    fontWeight: 700,
-    fontSize: "13px"
-  },
-  title: {
-    margin: "0 0 12px",
-    fontSize: "38px",
-    lineHeight: 1.1
-  },
-  sidebarTitle: {
-    margin: 0,
-    fontSize: "30px"
-  },
-  workspaceTitle: {
-    margin: 0,
-    fontSize: "32px"
-  },
-  description: {
-    margin: "0 0 26px",
-    color: "#cbd5e1",
-    lineHeight: 1.6
-  },
-  userText: {
-    color: "#cbd5e1",
-    margin: "8px 0 0"
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px"
-  },
-  createForm: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px"
-  },
-  label: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    color: "#e2e8f0",
-    fontWeight: 600
-  },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #475569",
-    borderRadius: "12px",
-    padding: "12px 14px",
-    background: "#020617",
-    color: "#f8fafc",
-    outline: "none",
-    fontSize: "15px"
-  },
-  primaryButton: {
-    border: 0,
-    borderRadius: "12px",
-    padding: "12px 16px",
-    background: "#2563eb",
-    color: "#ffffff",
-    fontWeight: 700,
-    cursor: "pointer"
-  },
-  secondarySmallButton: {
-    border: "1px solid #475569",
-    borderRadius: "12px",
-    padding: "11px 14px",
-    background: "#020617",
-    color: "#f8fafc",
-    fontWeight: 700,
-    cursor: "pointer"
-  },
-  aiButton: {
-    border: 0,
-    borderRadius: "12px",
-    padding: "12px 16px",
-    background: "#7c3aed",
-    color: "#ffffff",
-    fontWeight: 700,
-    cursor: "pointer"
-  },
-  secondaryButton: {
-    border: "1px solid #475569",
-    borderRadius: "12px",
-    padding: "12px 16px",
-    background: "transparent",
-    color: "#f8fafc",
-    fontWeight: 700,
-    cursor: "pointer",
-    marginTop: "auto"
-  },
-  linkButton: {
-    border: 0,
-    background: "transparent",
-    color: "#93c5fd",
-    cursor: "pointer",
-    marginTop: "18px",
-    padding: 0,
-    fontWeight: 700
-  },
-  status: {
-    color: "#cbd5e1",
-    margin: "0",
-    maxWidth: "920px"
-  },
-  documentList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-    overflowY: "auto"
-  },
-  documentItem: {
-    display: "grid",
-    gridTemplateColumns: "1fr auto",
-    gap: "8px",
-    border: "1px solid #334155",
-    borderRadius: "14px",
-    background: "#020617",
-    padding: "10px"
-  },
-  documentItemActive: {
-    borderColor: "#60a5fa"
-  },
-  documentButton: {
-    border: 0,
-    background: "transparent",
-    color: "#f8fafc",
-    textAlign: "left",
-    cursor: "pointer",
-    display: "flex",
-    flexDirection: "column",
-    gap: "5px"
-  },
-  deleteButton: {
-    border: "1px solid #7f1d1d",
-    borderRadius: "10px",
-    background: "#450a0a",
-    color: "#fecaca",
-    cursor: "pointer",
-    padding: "8px 10px"
-  },
-  emptyText: {
-    color: "#94a3b8",
-    lineHeight: 1.5,
-    margin: "8px 0 0"
-  },
-  editorPreview: {
-    flex: 1,
-    border: "1px solid #334155",
-    borderRadius: "22px",
-    background: "#020617",
-    overflow: "hidden",
-    minHeight: "660px"
-  },
-  editorTopBar: {
-    height: "44px",
-    borderBottom: "1px solid #334155",
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "0 16px",
-    background: "#111827"
-  },
-  dot: {
-    width: "12px",
-    height: "12px",
-    borderRadius: "50%",
-    background: "#64748b"
-  },
-  fileName: {
-    marginLeft: "12px",
-    color: "#cbd5e1",
-    fontSize: "14px"
-  },
-  revisionText: {
-    marginLeft: "auto",
-    color: "#94a3b8",
-    fontSize: "13px"
-  },
-  connectionPill: {
-    border: "1px solid #334155",
-    borderRadius: "999px",
-    padding: "8px 12px",
-    color: "#cbd5e1",
-    background: "#020617",
-    fontSize: "13px"
-  },
-  presencePanel: {
-    borderTop: "1px solid #334155",
-    padding: "14px 18px",
-    color: "#cbd5e1",
-    background: "#111827"
-  },
-  placeholder: {
-    minHeight: "540px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#cbd5e1",
-    textAlign: "center",
-    padding: "24px"
-  },
-  aiPanel: {
-    border: "1px solid #334155",
-    borderRadius: "22px",
-    background: "#111827",
-    minHeight: "660px",
-    padding: "18px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-    maxHeight: "760px",
-    overflowY: "auto"
-  },
-  aiTabs: {
-    display: "flex",
-    gap: "8px",
-    flexWrap: "wrap"
-  },
-  tabButton: {
-    border: "1px solid #334155",
-    borderRadius: "999px",
-    padding: "8px 10px",
-    background: "#020617",
-    color: "#cbd5e1",
-    cursor: "pointer",
-    fontWeight: 700
-  },
-  tabButtonActive: {
-    borderColor: "#93c5fd",
-    color: "#ffffff",
-    background: "#1d4ed8"
-  },
-  chatForm: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px"
-  },
-  chatInput: {
-    width: "100%",
-    minHeight: "90px",
-    resize: "vertical",
-    boxSizing: "border-box",
-    border: "1px solid #475569",
-    borderRadius: "12px",
-    padding: "12px 14px",
-    background: "#020617",
-    color: "#f8fafc",
-    outline: "none",
-    fontSize: "14px",
-    lineHeight: 1.5
-  },
-  aiOutputBox: {
-    border: "1px solid #334155",
-    borderRadius: "16px",
-    background: "#020617",
-    padding: "14px",
-    minHeight: "150px"
-  },
-  aiOutputTitle: {
-    margin: "0 0 10px",
-    fontSize: "17px"
-  },
-  aiOutputText: {
-    margin: 0,
-    color: "#cbd5e1",
-    lineHeight: 1.6,
-    whiteSpace: "pre-wrap"
-  },
-  ragBox: {
-    border: "1px solid #334155",
-    borderRadius: "16px",
-    background: "#020617",
-    padding: "14px",
-    color: "#cbd5e1",
-    lineHeight: 1.5
-  },
-  historyBox: {
-    border: "1px solid #334155",
-    borderRadius: "16px",
-    background: "#020617",
-    padding: "14px",
-    color: "#cbd5e1",
-    lineHeight: 1.5
-  },
-  historyHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "8px"
-  },
-  historyRefreshButton: {
-    border: "1px solid #475569",
-    borderRadius: "10px",
-    padding: "7px 10px",
-    background: "#111827",
-    color: "#f8fafc",
-    cursor: "pointer",
-    fontWeight: 700
-  },
-  historyStatus: {
-    color: "#94a3b8",
-    margin: "8px 0"
-  },
-  snapshotItem: {
-    border: "1px solid #334155",
-    borderRadius: "12px",
-    padding: "10px",
-    marginTop: "10px",
-    background: "#111827",
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px"
-  },
-  restoreButton: {
-    border: 0,
-    borderRadius: "10px",
-    padding: "8px 10px",
-    background: "#059669",
-    color: "#ffffff",
-    fontWeight: 700,
-    cursor: "pointer",
-    width: "fit-content"
-  },
-  tipBox: {
-    border: "1px solid #475569",
-    borderRadius: "16px",
-    background: "#0f172a",
-    padding: "14px",
-    color: "#cbd5e1",
-    lineHeight: 1.5,
-    marginTop: "auto"
-  }
-};
 
 createRoot(document.getElementById("root")).render(<App />);

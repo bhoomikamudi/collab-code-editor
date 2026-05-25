@@ -186,7 +186,7 @@ function App() {
     }
 
     loadCollaborators();
-  }, [selectedDocument]);
+  }, [selectedDocument?.id, selectedDocument?.access_role]);
 
   // Rebuild remote cursor decorations only when presence changes (not each keystroke).
   const editorExtensions = useMemo(
@@ -329,7 +329,7 @@ function App() {
     return () => {
       socket.close();
     };
-  }, [selectedDocument]);
+  }, [selectedDocument?.id]);
 
   async function loadDocuments() {
     const data = await listDocuments();

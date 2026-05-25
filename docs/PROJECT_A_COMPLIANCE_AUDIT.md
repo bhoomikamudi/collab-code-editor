@@ -13,7 +13,7 @@
 | Requirement from Project A | Status | Evidence from repo | Gap or next action |
 |----------------------------|--------|-------------------|-------------------|
 | Browser-based collaborative code editor | **Complete** | `client/src/App.jsx` — CodeMirror editor, document UI, real-time updates via WebSocket | None for core browser editor |
-| Multiple users editing the same file simultaneously in real time | **Partial** | `server/src/websocketServer.js` — rooms, `REMOTE_OPERATION`, Redis history; `client/src/App.jsx` — queued insert/delete sync from CodeMirror ChangeSets | Insert, delete, and replace (as delete+insert) sync; not Google Docs–level conflict UX. Prove with two browser tabs + screen recording |
+| Multiple users editing the same file simultaneously in real time | **Partial** | `server/src/websocketServer.js` — rooms, `REMOTE_OPERATION`, Redis history; `client/src/App.jsx` — queued insert/delete sync; **manual browser validation (2026-05-25)** — User A insert/delete persisted; User B write session opened shared doc; cross-user `REMOTE_OPERATION` observed; revision UI reached 5 | Simultaneous two-tab editing not proven in one browser profile; replace-over-selection not fully exercised in browser automation |
 | React frontend | **Complete** | `client/package.json` — `react`, `react-dom`; `client/src/App.jsx` | None |
 | CodeMirror 6 editor | **Complete** | `client/package.json` — `@codemirror/state`, `@codemirror/view`, `@codemirror/lang-javascript`, `codemirror@^6`; `@uiw/react-codemirror` | None |
 | Native WebSocket client (not Socket.IO client) | **Complete** | `client/src/App.jsx` — `const socket = new WebSocket(WS_URL)`; no `socket.io-client` in `client/package.json` | None |
@@ -26,7 +26,7 @@
 | PostgreSQL for users | **Complete** | `server/src/schema.sql` — `users` table; `server/src/authRoutes.js` — register/login | None |
 | PostgreSQL for documents | **Complete** | `schema.sql` — `documents`; `server/src/documentRoutes.js` — CRUD | None |
 | PostgreSQL for sessions / user session data | **Partial** | JWT stored in `localStorage` (`client/src/api.js` — `authToken`); `GET /auth/me` | No dedicated `sessions` table or server-side session store. Spec may mean “user auth state” — met via JWT, not DB sessions |
-| PostgreSQL for collaborators | **Complete** | `document_collaborators` + `documentAccess.js`; REST share routes; WebSocket `can_write` enforcement; Share panel in `App.jsx` | Manual two-user Docker validation recommended |
+| PostgreSQL for collaborators | **Complete** | `document_collaborators` + `documentAccess.js`; REST share routes; WebSocket `can_write` enforcement; Share panel in `App.jsx`; **manual validation** — write collaborator edits; read-only join blocks editor input; non-owner HTTP 403 on delete | None for core collaborator flows |
 | PostgreSQL for snapshots | **Complete** | `schema.sql` — `document_snapshots`; `server/src/snapshotStore.js`; restore in `documentRoutes.js` | None |
 | JWT authentication | **Complete** | `server/src/auth.js`, `authRoutes.js`; Bearer token on API; `JOIN_DOCUMENT` requires JWT in `websocketServer.js` | None |
 | Python FastAPI AI microservice | **Complete** | `ai-service/main.py` — FastAPI app, `/health`, `/index`, `/complete`, `/explain`, `/chat` | None |
@@ -44,17 +44,17 @@
 | Screenshots / demo GIF in repo | **Missing** | `docs/SCREENSHOTS.md` lists desired assets; **0 image/gif/video files** in repository (glob `*.{png,gif,mp4}` → none) | Capture and commit assets or link externally |
 | 3-minute demo video | **Needs Manual Proof** | `docs/DEMO_SCRIPT.md` provides script only | No video file or hosted link in repo |
 | Working demo URL (public) | **Missing** | README states no public deployment unless user hosts; no production URL in docs | Deploy to Railway/EC2/etc. and add real URL to README |
-| Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `collabOperations.js` + queued WebSocket ops | Demo-able manually (insert, delete, replace-over-selection); **no automated E2E proof** in repo |
+| Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `collabOperations.js` + queued WebSocket ops; **manual validation** — sequential User A/B browser sessions on same doc; insert + backspace delete synced to PostgreSQL; revision counter increments | Same-browser-profile automation cannot hold two accounts at once; replace-over-selection and simultaneous typing need a second browser/incognito recording |
 | Document snapshots every 50 operations | **Complete** | `server/src/websocketServer.js` — `SNAPSHOT_INTERVAL = 50`; `maybeCreateSnapshot` on operation ack path | None |
 | Version history + restore workflow | **Complete** | `GET /documents/:id/history`, `POST .../restore/:snapshotId`; UI: Load History, Restore in `App.jsx` | None |
 | AI Complete | **Complete** | `POST /ai/complete` proxy; `handleAiComplete` in `App.jsx` | Mock mode default |
 | Explain Selection | **Complete** | `POST /ai/explain`; `handleExplainSelection` | Mock mode default |
 | Codebase Chat | **Complete** | `POST /ai/chat`; `handleChatSubmit` | Mock mode default |
 | RAG references in UI | **Complete** | `formatRagReferences` in `App.jsx`; `rag_chunks` from API; Index for RAG button | Retrieval uses mock embeddings unless extended |
-| Colored remote cursors inside editor | **Complete** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations (caret widget + selection highlight); `App.jsx` filters local user; footer presence panel retained | Manual two-tab check recommended when Docker/browser testing is available |
+| Colored remote cursors inside editor | **Partial** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations; `CURSOR` / `CURSOR_UPDATE` in `websocketServer.js`; **manual validation** — User B WebSocket client sent `CURSOR` with selection range while User A had doc open | Colored caret/selection highlight **not visually confirmed** in browser screenshot during this run (B session disconnected quickly; presence footer showed local user only) |
 | Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert; `App.jsx` operation queue per `OPERATION_ACK` | Backend still uses insert/delete only; simultaneous heavy edits need manual two-tab validation |
 | Redis pub/sub echo-loop prevention | **Complete** | `pubsub.js` — `serverInstanceId`, skip if `event.serverInstanceId === serverInstanceId` | None |
-| Final Docker Compose run proven after latest changes | **Partial (2026-05-25)** | Compose + API/WebSocket validated; client container fix applied; browser smoke on `:3000` | Two-tab OT/replace and dual-user remote cursors still need manual browser proof — see [Full Docker E2E validation](#full-docker-e2e-validation) |
+| Final Docker Compose run proven after latest changes | **Partial (2026-05-25)** | Compose + API/WebSocket + **manual browser workflows** validated on `phase3-manual-browser-validation`; WebSocket persistence bug fixed in `App.jsx` | Simultaneous dual-browser GIF/recording and remote-cursor visuals still pending — see [Manual browser validation](#manual-browser-validation) |
 | `DEPLOYMENT.md` / env templates without secrets | **Complete** | `DEPLOYMENT.md`, `deploy/env.prod.example`, `server/.env.example`, `ai-service/.env.example` | None |
 
 ---
@@ -133,6 +133,98 @@ docker compose down
 
 ---
 
+## Manual browser validation
+
+**Branch:** `phase3-manual-browser-validation`  
+**Date:** 2026-05-25  
+**Overall status:** **Partial pass** — two-user browser workflows exercised sequentially; one WebSocket bug fixed; remote-cursor visuals and simultaneous editing not fully proven
+
+### Bug fixed during validation
+
+| Issue | Root cause | Fix |
+|-------|------------|-----|
+| Browser edits stuck on “Joined real-time document room”; operations not persisting | WebSocket `useEffect` depended on `[selectedDocument]`; `DOCUMENT_JOINED` metadata update re-ran the effect and **closed/reopened** the socket, breaking the operation queue | `client/src/App.jsx` — WebSocket effect deps → `[selectedDocument?.id]`; collaborator loader → `[selectedDocument?.id, selectedDocument?.access_role]` |
+
+### Infrastructure (same as prior E2E run)
+
+| Step | Result |
+|------|--------|
+| `docker compose up -d --build` | **Pass** |
+| `docker compose exec server npm run init-db` | **Pass** |
+| `GET http://localhost:5000/health` | **Pass** |
+| `GET http://localhost:8000/health` | **Pass** — `ai_mode: mock` |
+| `http://localhost:3000` | **Pass** |
+| `docker compose down` (post-validation) | **Pass** |
+
+### Two-user browser workflows (sequential sessions)
+
+Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (registered via API). Document: shared write → re-shared read for permission test.
+
+| # | Workflow | Result | Notes |
+|---|----------|--------|-------|
+| 1 | User A register/login | **Pass** | |
+| 2 | User A create/open document | **Pass** | |
+| 3 | User A share with User B (write) | **Pass** | Share panel + Remove button; API collaborator row |
+| 4 | User B login, list shared doc | **Pass** | Label: “Collaborator (write)” |
+| 5 | User B open shared document | **Pass** | “Shared with you — Collaborator (write)” |
+| 6 | User A insert typing → PostgreSQL | **Pass** (after WS fix) | e.g. appended `function test() {}` |
+| 7 | User B insert typing | **Partial** | Text appeared in B editor; persistence laggy vs REST snapshot during session |
+| 8 | Cross-user remote operation | **Pass** | B WebSocket `OPERATION` insert appeared in A browser (`REMOTE_OPERATION`) |
+| 9 | User A backspace delete | **Pass** | Removed appended function from editor content |
+| 10 | Replace-over-selection (Ctrl+A + type) | **Not verified** | Browser automation appended instead of replacing; needs human second-browser test |
+| 11 | Revision increments | **Pass** | Editor header showed “Revision 5” |
+| 12 | Read-only collaborator | **Pass** | API re-share as `read`; B UI: “Collaborator (read) · read-only editor”, “Joined document (read-only)”; CodeMirror input blocked |
+| 13 | Write collaborator can edit | **Pass** | B typed while permission was `write` |
+| 14 | Non-owner cannot delete | **Pass** | No Delete button in B UI; `DELETE /documents/:id` → HTTP 403 |
+
+### Remote cursor / selection
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| User B sends `CURSOR` via WebSocket while A has doc open | **Pass (API/runtime)** | `docker compose exec server node -e …` sent selection range |
+| User A sees colored remote caret + label | **Not verified** | Screenshot showed local presence only; B session disconnected quickly |
+| User A selection visible to User B | **Not verified** | Not tested with two live browser sessions |
+
+### AI / RAG (mock mode)
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Index for RAG | **Pass** | |
+| AI Complete | **Pass** | Mock completion + RAG ref |
+| Explain Selection | **Pass** | Explanation + RAG ref |
+| Codebase Chat | **Pass** | Answer states **mock RAG mode**; RAG ref shown |
+| Real OpenAI path | **Not tested** | `ai_mode: mock` on `/health` |
+
+### Version history
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| Load History | **Pass** | “No snapshots yet. Snapshots are created every 50 operations.” |
+| Restore snapshot | **Not tested** | Revision ~5; threshold not reached |
+
+### Browser / logs
+
+| Check | Result |
+|-------|--------|
+| Major browser console errors | **None observed** in automation session |
+| Network/auth/documents/AI routes | **Pass** during exercised flows |
+| `docker compose logs server` | **Pass** — no crashes |
+| `docker compose logs ai-service` | **Pass with warnings** — Chroma telemetry warnings only |
+| `docker compose logs client` | **Pass** — Vite dev server ready |
+
+### Post-teardown static checks — pass
+
+`npm run check` (server), `npm run build` (client), `python -m py_compile config.py main.py rag_store.py` (ai-service).
+
+### Still needs manual proof
+
+- Two browsers/incognito profiles **at the same time**: simultaneous typing, delete, replace-over-selection.
+- Visual confirmation of colored remote cursor/selection decorations.
+- Snapshot restore after 50+ operations.
+- Demo GIF / 3-minute video / public deployment URL.
+
+---
+
 ## Strict deep-dive notes
 
 ### AI / RAG stack vs specification wording
@@ -152,7 +244,7 @@ docker compose down
 | Server OT | **Implemented** — `ot` package, transform against Redis history (`otEngine.js`, `websocketServer.js`). |
 | Client OT | **Improved** — CodeMirror 6 `ChangeSet` → insert/delete (+ replace as delete+insert queue); no client-side ot.js transform. |
 | Replace | **Supported** — client maps replace to delete+insert; server accepts insert/delete only. |
-| Remote cursors | **Implemented** — `remoteCursorExtension.js` decorations; not browser-verified in this run. |
+| Remote cursors | **Implemented** — `remoteCursorExtension.js` decorations; `CURSOR`/`CURSOR_UPDATE` exercised via WebSocket script; **colored caret not browser-screenshot-verified** in manual validation run. |
 | Conflict handling | **Prototype-level** — suitable for portfolio demo with caveats, not spec-grade concurrent editing. |
 
 ### Deployment
@@ -183,7 +275,7 @@ docker compose down
 
 ### Testing / validation tasks
 
-1. **Two-browser manual test** — same document, simultaneous typing, capture evidence (GIF).
+1. **Two-browser manual test** — same document, **simultaneous** typing (incognito + normal), capture evidence (GIF).
 2. **WebSocket script** — `npm run test-ws` in Compose after clean build.
 3. **Multi-instance Redis pub/sub** — two `server` replicas behind nginx/Redis (prove cross-instance fan-out).
 4. **Real OpenAI path** — one run with `AI_MOCK_MODE=false` and valid key (completion + RAG); document results in README.

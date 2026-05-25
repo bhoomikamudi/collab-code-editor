@@ -64,7 +64,7 @@ Edit `.env` before starting the stack.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | No | empty | Optional OpenAI key for real model calls |
+| `OPENAI_API_KEY` | When `AI_MOCK_MODE=false` | empty | OpenAI key for real model calls; omit or leave empty for mock mode |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | Completion/chat model |
 | `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model for RAG |
 | `AI_MOCK_MODE` | No | `true` | `true` = mock LLM/embeddings (no key); `false` requires `OPENAI_API_KEY` for real OpenAI via LangChain |
@@ -209,6 +209,35 @@ This repository ships an HTTP nginx config on port 80. For a public deployment:
 4. Rebuild nginx if you change `VITE_*` build-time values.
 
 Do not commit real `.env` files or API keys.
+
+## Real OpenAI mode validation (local)
+
+Default `AI_MOCK_MODE=true` needs no key. To validate the real LangChain + OpenAI path locally:
+
+1. Copy `ai-service/.env.example` to `ai-service/.env` (gitignored).
+2. Set locally only (never commit):
+   - `AI_MOCK_MODE=false`
+   - `OPENAI_API_KEY=sk-...` (your key)
+   - Optional: `OPENAI_MODEL=gpt-4o-mini`, `EMBEDDING_MODEL=text-embedding-3-small`
+3. Start the AI service:
+
+```bash
+docker compose up -d --build ai-service
+# or: cd ai-service && uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+4. Confirm health shows real mode:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/health
+# Expect: ai_mode = openai, chat_model = gpt-4o-mini, embedding_model = text-embedding-3-small
+```
+
+5. Run index → complete → explain → chat. Full PowerShell examples are in [docs/PROJECT_A_COMPLIANCE_AUDIT.md](docs/PROJECT_A_COMPLIANCE_AUDIT.md#real-openai-validation).
+
+**Pass criteria:** `model` is `gpt-4o-mini` (not `mock-ai`), responses are not mock templates, and `rag_chunks` returns after indexing.
+
+Do not log or commit the API key.
 
 ## Files added for deployment
 

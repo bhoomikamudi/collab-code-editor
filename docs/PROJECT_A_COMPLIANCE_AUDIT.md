@@ -4,7 +4,7 @@
 **Audit date:** 2026-05-24  
 **Method:** Static review of source, config, and docs. No claim is marked **Complete** unless implementation evidence exists in the repo.
 
-**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. Gaps are concentrated in **spec-mandated AI stack fidelity** (LangChain, tiktoken, real embeddings), **editor UX depth** (colored remote cursors, replace sync), **collaborator workflows**, **live deployment proof**, and **portfolio media** (GIF, video, public URL).
+**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **editor UX depth** (colored remote cursors, replace sync), **collaborator workflows**, **live deployment proof**, and **portfolio media** (GIF, video, public URL).
 
 ---
 
@@ -30,11 +30,11 @@
 | PostgreSQL for snapshots | **Complete** | `schema.sql` — `document_snapshots`; `server/src/snapshotStore.js`; restore in `documentRoutes.js` | None |
 | JWT authentication | **Complete** | `server/src/auth.js`, `authRoutes.js`; Bearer token on API; `JOIN_DOCUMENT` requires JWT in `websocketServer.js` | None |
 | Python FastAPI AI microservice | **Complete** | `ai-service/main.py` — FastAPI app, `/health`, `/index`, `/complete`, `/explain`, `/chat` | None |
-| LangChain RAG pipeline | **Missing** | `ai-service/requirements.txt` lists `langchain`, `langchain-openai`, `langchain-community` | **No `import langchain` or LangChain APIs in `main.py` or `rag_store.py`**. RAG is custom ChromaDB + OpenAI SDK, not a LangChain pipeline |
-| ChromaDB vector storage | **Complete** | `ai-service/rag_store.py` — `chromadb.PersistentClient`, `collection.add`, `collection.query` | Used with **mock embeddings** by default (see below) |
-| OpenAI `gpt-4o-mini` for completions / explanations | **Partial** | `ai-service/main.py` — `OPENAI_MODEL` default `gpt-4o-mini`, `client.chat.completions.create` when `USE_MOCK_AI` is false | Default local path: `ai-service/.env.example` has `USE_MOCK_AI=true`. Real GPT path exists but is not the default demo configuration |
-| OpenAI `text-embedding-3-small` for embeddings | **Missing** | `EMBEDDING_MODEL` in `.env.example` only | `rag_store.py` uses `mock_embedding()` — **never calls OpenAI embeddings API** or reads `EMBEDDING_MODEL` |
-| `tiktoken` for token counting / chunking | **Missing** | `tiktoken==0.7.0` in `requirements.txt` only | **Not imported or used** in `rag_store.py` or `main.py`. Chunking is line/boundary heuristics, not token-based |
+| LangChain RAG pipeline | **Complete** | `rag_store.py` — `langchain_openai.OpenAIEmbeddings`; `main.py` — `langchain_openai.ChatOpenAI` + ChromaDB store/query | Real mode uses LangChain for embeddings and chat; mock mode uses deterministic local embeddings |
+| ChromaDB vector storage | **Complete** | `ai-service/rag_store.py` — `chromadb.PersistentClient`, `collection.add`, `collection.query` | Separate collections for mock vs OpenAI embedding dimensions |
+| OpenAI `gpt-4o-mini` for completions / explanations | **Complete** | `main.py` — `ChatOpenAI(model=OPENAI_MODEL)` when `AI_MOCK_MODE=false`; default mock without key | Default local demo remains mock unless `OPENAI_API_KEY` is set and `AI_MOCK_MODE=false` |
+| OpenAI `text-embedding-3-small` for embeddings | **Complete** | `rag_store.py` — `OpenAIEmbeddings(model=EMBEDDING_MODEL)` when `AI_MOCK_MODE=false` | Mock mode uses `mock_embedding()`; real mode uses OpenAI embeddings |
+| `tiktoken` for token counting / chunking | **Complete** | `rag_store.py` — `tiktoken.get_encoding`, `count_tokens`, token-budget chunk packing in `split_code_into_chunks` | Used in both mock and real modes for chunk sizing |
 | Code chunking function/class-aware | **Partial** | `rag_store.py` — `split_code_into_chunks()` regex for `def`, `class`, `function`, etc., then line windows | Heuristic split, not AST-aware; adequate for prototype, not full structural parsing |
 | Docker + Docker Compose for all services | **Complete** | `docker-compose.yml` — postgres, redis, server, ai-service, client | Local dev uses bind mounts + dev commands |
 | Nginx reverse proxy for deployment | **Partial** | `deploy/nginx/default.conf`, `deploy/nginx/Dockerfile`, `docker-compose.prod.yml` nginx service | Config exists; **not the same as a proven public deployment** |
@@ -65,11 +65,11 @@
 
 | Spec item | What the repo actually does |
 |-----------|----------------------------|
-| LangChain | Dependency pin only. Pipeline = FastAPI → `rag_store.py` (Chroma + mock embed) → OpenAI Chat Completions API. |
-| ChromaDB | **Actually used** for persist, index, and query. |
-| `text-embedding-3-small` | **Not wired.** Embeddings are deterministic `mock_embedding()` hashes. |
-| `tiktoken` | **Not wired.** Chunk size is line-based (`max_lines_per_chunk=80`), not token budget. |
-| `gpt-4o-mini` | Implemented behind `USE_MOCK_AI=false` + valid `OPENAI_API_KEY`. |
+| LangChain | **Wired in real mode** — `OpenAIEmbeddings` + `ChatOpenAI` in `ai-service/`. |
+| ChromaDB | **Actually used** for persist, index, and query (mock and OpenAI collections). |
+| `text-embedding-3-small` | **Wired when `AI_MOCK_MODE=false`** via `OpenAIEmbeddings`. |
+| `tiktoken` | **Wired** — token-budget chunking in `split_code_into_chunks`. |
+| `gpt-4o-mini` | **Wired when `AI_MOCK_MODE=false`** via `ChatOpenAI`. |
 
 ### Collaboration / OT
 
@@ -105,21 +105,17 @@
 
 ### Code tasks
 
-1. **Wire real RAG stack to spec (choose honest path):**
-   - Either implement LangChain + OpenAI embeddings (`text-embedding-3-small`) + tiktoken-aware chunking in `rag_store.py` / `main.py`, **or** document a spec deviation if course allows custom pipeline only.
-2. **Use `EMBEDDING_MODEL` and OpenAI embeddings API** when `USE_MOCK_AI=false` (keep mock path for free local dev).
-3. **Import and use `tiktoken`** for chunk token limits (or LangChain text splitters that use it).
-4. **Support replace operations** in client diff → server sync path (or document as out-of-scope with spec approval).
-5. **Render colored remote cursors / selections** in CodeMirror from `presence` (extensions or decorations).
-6. **Collaborator invite flow** — API + UI to insert `document_collaborators` (currently schema-only).
-7. **Optional:** PostgreSQL `sessions` table if spec requires server-side sessions beyond JWT.
+1. **Support replace operations** in client diff → server sync path (or document as out-of-scope with spec approval).
+2. **Render colored remote cursors / selections** in CodeMirror from `presence` (extensions or decorations).
+3. **Collaborator invite flow** — API + UI to insert `document_collaborators` (currently schema-only).
+4. **Optional:** PostgreSQL `sessions` table if spec requires server-side sessions beyond JWT.
 
 ### Testing / validation tasks
 
 1. **Two-browser manual test** — same document, simultaneous typing, capture evidence (GIF).
 2. **WebSocket script** — `npm run test-ws` in Compose after clean build.
 3. **Multi-instance Redis pub/sub** — two `server` replicas behind nginx/Redis (prove cross-instance fan-out).
-4. **Real OpenAI path** — one run with `USE_MOCK_AI=false` and valid key (completion + RAG).
+4. **Real OpenAI path** — one run with `AI_MOCK_MODE=false` and valid key (completion + RAG); document results in README.
 5. **Full regression** — `docker compose up --build` and `docker compose -f docker-compose.prod.yml up --build` after changes; document pass/fail.
 
 ### Deployment tasks
@@ -143,19 +139,18 @@
 
 | Category | Suggested prompts | Notes |
 |----------|-------------------|--------|
-| AI / RAG fidelity | 2–3 | LangChain + embeddings + tiktoken is one large or two medium tasks |
 | Editor collaboration | 2 | Remote cursors + replace sync |
 | Collaborators + sessions | 1 | If required by grader |
 | Testing / validation | 2 | Compose proof + two-browser GIF evidence |
 | Deployment | 2–3 | Railway or EC2 + live URL + smoke tests |
 | Documentation / media | 2 | Diagram + README embeds + video checklist |
-| **Total** | **~10–14 focused prompts** | Assumes no major refactors beyond listed gaps; fewer if spec allows waiving LangChain label while keeping ChromaDB |
+| **Total** | **~8–12 focused prompts** | AI/RAG stack items addressed; remaining work is editor UX, deployment proof, and media |
 
 ---
 
 ## Recruiter-safe one-line summary
 
-**“Full-stack real-time collab editor with JWT, Redis OT history, WebSocket sync, snapshots, FastAPI + ChromaDB RAG UI, Docker/CI/nginx config — strong local prototype; remaining work is spec-faithful AI stack wiring, in-editor presence polish, public deployment, and demo media.”**
+**“Full-stack real-time collab editor with JWT, Redis OT history, WebSocket sync, snapshots, FastAPI + LangChain/ChromaDB RAG (mock or real OpenAI modes), Docker/CI/nginx config — strong local prototype; remaining work is in-editor presence polish, public deployment, and demo media.”**
 
 ---
 

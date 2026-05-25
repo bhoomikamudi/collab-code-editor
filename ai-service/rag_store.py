@@ -4,13 +4,54 @@ import re
 from typing import Dict, List, Optional
 
 import chromadb
+import tiktoken
 
-CHROMA_DB_DIR = os.getenv("CHROMA_DB_DIR", "/app/chroma_data")
-COLLECTION_NAME = "codebase_chunks"
-EMBEDDING_DIMENSION = 64
+from config import (
+    AI_MOCK_MODE,
+    CHROMA_DB_DIR,
+    CHUNK_TOKEN_LIMIT,
+    EMBEDDING_MODEL,
+    require_openai_api_key,
+)
 
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
-collection = chroma_client.get_or_create_collection(name=COLLECTION_NAME)
+MOCK_COLLECTION_NAME = "codebase_chunks_mock"
+OPENAI_COLLECTION_NAME = "codebase_chunks_openai"
+MOCK_EMBEDDING_DIMENSION = 64
+
+_encoding = None
+_embeddings_client = None
+_chroma_client = None
+
+
+def get_collection_name() -> str:
+    return MOCK_COLLECTION_NAME if AI_MOCK_MODE else OPENAI_COLLECTION_NAME
+
+
+def get_chroma_client():
+    global _chroma_client
+
+    if _chroma_client is None:
+        _chroma_client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
+
+    return _chroma_client
+
+
+def get_collection():
+    client = get_chroma_client()
+    return client.get_or_create_collection(name=get_collection_name())
+
+
+def get_tiktoken_encoding():
+    global _encoding
+
+    if _encoding is None:
+        _encoding = tiktoken.get_encoding("cl100k_base")
+
+    return _encoding
+
+
+def count_tokens(text: str) -> int:
+    return len(get_tiktoken_encoding().encode(text or ""))
 
 
 def normalize_text(text: str) -> str:
@@ -18,15 +59,12 @@ def normalize_text(text: str) -> str:
 
 
 def mock_embedding(text: str) -> List[float]:
-    """
-    Deterministic local embedding used for free development/testing.
-    This avoids paid OpenAI embedding calls while still exercising ChromaDB.
-    """
-    vector = [0.0] * EMBEDDING_DIMENSION
+    """Deterministic local embedding for mock mode (no OpenAI calls)."""
+    vector = [0.0] * MOCK_EMBEDDING_DIMENSION
     normalized = normalize_text(text).lower()
 
     for index, character in enumerate(normalized):
-        bucket = (ord(character) + index) % EMBEDDING_DIMENSION
+        bucket = (ord(character) + index) % MOCK_EMBEDDING_DIMENSION
         vector[bucket] += 1.0
 
     magnitude = sum(value * value for value in vector) ** 0.5
@@ -35,6 +73,35 @@ def mock_embedding(text: str) -> List[float]:
         return vector
 
     return [value / magnitude for value in vector]
+
+
+def get_langchain_embeddings():
+    """LangChain OpenAI embeddings used in real mode."""
+    global _embeddings_client
+
+    if _embeddings_client is None:
+        from langchain_openai import OpenAIEmbeddings
+
+        _embeddings_client = OpenAIEmbeddings(
+            model=EMBEDDING_MODEL,
+            openai_api_key=require_openai_api_key(),
+        )
+
+    return _embeddings_client
+
+
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    if AI_MOCK_MODE:
+        return [mock_embedding(text) for text in texts]
+
+    return get_langchain_embeddings().embed_documents(texts)
+
+
+def embed_query(text: str) -> List[float]:
+    if AI_MOCK_MODE:
+        return mock_embedding(text)
+
+    return get_langchain_embeddings().embed_query(text)
 
 
 def get_file_language(filename: str) -> str:
@@ -61,10 +128,10 @@ def get_file_language(filename: str) -> str:
     return extension_map.get(extension, "text")
 
 
-def split_code_into_chunks(content: str, max_lines_per_chunk: int = 80) -> List[Dict]:
+def split_code_into_chunks(content: str, max_tokens: int = CHUNK_TOKEN_LIMIT) -> List[Dict]:
     """
-    Splits code using simple function/class boundary patterns first.
-    Falls back to line-window chunks for long blocks.
+    Splits code on function/class boundaries, then packs lines into token-budget chunks.
+    Uses tiktoken for token counting in all modes.
     """
     lines = (content or "").splitlines()
 
@@ -93,20 +160,46 @@ def split_code_into_chunks(content: str, max_lines_per_chunk: int = 80) -> List[
         end = boundary_indexes[boundary_index + 1]
         block_lines = lines[start:end]
 
-        for window_start in range(0, len(block_lines), max_lines_per_chunk):
-            window_lines = block_lines[window_start : window_start + max_lines_per_chunk]
-            chunk_text = "\n".join(window_lines).strip()
+        current_lines = []
+        current_tokens = 0
+        window_start = 0
 
-            if not chunk_text:
+        for offset, line in enumerate(block_lines):
+            line_tokens = count_tokens(line + "\n")
+
+            if current_lines and current_tokens + line_tokens > max_tokens:
+                chunk_text = "\n".join(current_lines).strip()
+
+                if chunk_text:
+                    chunks.append(
+                        {
+                            "text": chunk_text,
+                            "start_line": start + window_start + 1,
+                            "end_line": start + window_start + len(current_lines),
+                            "token_count": current_tokens,
+                        }
+                    )
+
+                current_lines = [line]
+                current_tokens = line_tokens
+                window_start = offset
                 continue
 
-            chunks.append(
-                {
-                    "text": chunk_text,
-                    "start_line": start + window_start + 1,
-                    "end_line": start + window_start + len(window_lines),
-                }
-            )
+            current_lines.append(line)
+            current_tokens += line_tokens
+
+        if current_lines:
+            chunk_text = "\n".join(current_lines).strip()
+
+            if chunk_text:
+                chunks.append(
+                    {
+                        "text": chunk_text,
+                        "start_line": start + window_start + 1,
+                        "end_line": start + window_start + len(current_lines),
+                        "token_count": current_tokens,
+                    }
+                )
 
     return chunks
 
@@ -128,6 +221,8 @@ def index_codebase(codebase_id: str, files: List[Dict]) -> Dict:
     if not files:
         raise ValueError("At least one file is required for indexing")
 
+    collection = get_collection()
+
     try:
         collection.delete(where={"codebase_id": codebase_id})
     except Exception:
@@ -135,7 +230,6 @@ def index_codebase(codebase_id: str, files: List[Dict]) -> Dict:
 
     ids = []
     documents = []
-    embeddings = []
     metadatas = []
 
     for file_item in files:
@@ -155,7 +249,6 @@ def index_codebase(codebase_id: str, files: List[Dict]) -> Dict:
 
             ids.append(chunk_id)
             documents.append(chunk["text"])
-            embeddings.append(mock_embedding(chunk["text"]))
             metadatas.append(
                 {
                     "codebase_id": codebase_id,
@@ -163,10 +256,12 @@ def index_codebase(codebase_id: str, files: List[Dict]) -> Dict:
                     "language": language,
                     "start_line": chunk["start_line"],
                     "end_line": chunk["end_line"],
+                    "token_count": chunk.get("token_count", 0),
                 }
             )
 
     if ids:
+        embeddings = embed_texts(documents)
         collection.add(
             ids=ids,
             documents=documents,
@@ -178,6 +273,10 @@ def index_codebase(codebase_id: str, files: List[Dict]) -> Dict:
         "codebase_id": codebase_id,
         "files_indexed": len(files),
         "chunks_indexed": len(ids),
+        "embedding_mode": "mock" if AI_MOCK_MODE else "openai",
+        "embedding_model": "mock-embedding"
+        if AI_MOCK_MODE
+        else EMBEDDING_MODEL,
     }
 
 
@@ -186,10 +285,11 @@ def retrieve_relevant_chunks(
     codebase_id: Optional[str] = None,
     top_k: int = 5,
 ) -> List[Dict]:
+    collection = get_collection()
     where_filter = {"codebase_id": codebase_id} if codebase_id else None
 
     results = collection.query(
-        query_embeddings=[mock_embedding(query)],
+        query_embeddings=[embed_query(query)],
         n_results=top_k,
         where=where_filter,
         include=["documents", "metadatas", "distances"],

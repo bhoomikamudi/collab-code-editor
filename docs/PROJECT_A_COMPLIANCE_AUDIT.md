@@ -54,7 +54,7 @@
 | Colored remote cursors inside editor | **Complete** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations (caret widget + selection highlight); `App.jsx` filters local user; footer presence panel retained | Manual two-tab check recommended when Docker/browser testing is available |
 | Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert; `App.jsx` operation queue per `OPERATION_ACK` | Backend still uses insert/delete only; simultaneous heavy edits need manual two-tab validation |
 | Redis pub/sub echo-loop prevention | **Complete** | `pubsub.js` — `serverInstanceId`, skip if `event.serverInstanceId === serverInstanceId` | None |
-| Final Docker Compose run proven after latest changes | **Blocked (2026-05-25)** | `docker compose up -d --build` failed: Docker Desktop Linux engine pipe not available on validation host | Start Docker Desktop, re-run checklist in [Full Docker E2E validation](#full-docker-e2e-validation) below |
+| Final Docker Compose run proven after latest changes | **Partial (2026-05-25)** | Compose + API/WebSocket validated; client container fix applied; browser smoke on `:3000` | Two-tab OT/replace and dual-user remote cursors still need manual browser proof — see [Full Docker E2E validation](#full-docker-e2e-validation) |
 | `DEPLOYMENT.md` / env templates without secrets | **Complete** | `DEPLOYMENT.md`, `deploy/env.prod.example`, `server/.env.example`, `ai-service/.env.example` | None |
 
 ---
@@ -62,58 +62,74 @@
 ## Full Docker E2E validation
 
 **Branch:** `phase3-full-docker-e2e-validation`  
-**Date:** 2026-05-25  
-**Overall status:** **Not run — Docker daemon unavailable**
+**Date:** 2026-05-25 (second run with Docker Desktop running)  
+**Overall status:** **Partial pass** — stack, REST, WebSocket, and mock AI validated; interactive two-tab UX not fully automated
 
-### Environment
+### Fixes applied during validation
 
-`docker compose up -d --build` failed immediately:
+| Issue | Fix |
+|-------|-----|
+| `collab_client` exited: `Cannot find module 'tailwindcss'` | Moved Tailwind/PostCSS/Vite to `dependencies`; removed stale `/app/node_modules` anonymous volume; `command: npm install && npm run dev` in `docker-compose.yml` |
 
-```text
-failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine
-```
+### Infrastructure
 
-**Action required:** Start Docker Desktop (or a running Docker engine), then re-run the checklist below. Do not treat this audit as proof of runtime behavior until Compose succeeds.
+| Step | Result |
+|------|--------|
+| `docker compose up -d --build` | **Pass** (after client fix) |
+| `docker ps` | **Pass** — postgres, redis, server, ai-service, client running |
+| `GET /health` server `:5000` | **Pass** — `status: ok` |
+| `GET /health` ai-service `:8000` | **Pass** — `ai_mode: mock` |
+| `docker compose exec server npm run init-db` | **Pass** |
+| `docker compose down` | **Pass** |
 
-### Static validation (no Docker) — passed
+### API / WebSocket (PowerShell + `testWebSocket.js`)
 
-| Check | Command | Result |
-|-------|---------|--------|
-| Node server syntax | `cd server && npm run check` | Pass |
-| Frontend production build | `cd client && npm run build` | Pass |
-| AI service syntax | `cd ai-service && python -m py_compile config.py main.py rag_store.py` | Pass |
+| # | Area | Result | Notes |
+|---|------|--------|-------|
+| 5 | Auth — register User A & B, `/auth/me` | **Pass** | |
+| 6 | Documents — create, list, metadata | **Pass** | `access_role`, `permission_level` on shared doc |
+| 7a | Share write → B lists/opens doc | **Pass** | |
+| 7b | B sends `OPERATION` via WebSocket | **Pass** | `OPERATION_ACK`, revision increments |
+| 7c | Re-share B as **read** → B `OPERATION` blocked | **Pass** | `ERROR: read-only access`; `can_write: false` on join |
+| 7d | B cannot delete document | **Pass** | HTTP 403 |
+| 8 | Two-tab insert/delete/replace in browser | **Not automated** | Needs manual two-tab demo |
+| 9 | Remote cursors (two users) | **Not automated** | Needs second browser/user session |
+| 10 | AI/RAG mock (REST) | **Pass** | index, complete, explain, chat; `rag_chunks` returned |
+| 11 | Version history | **Pass (empty)** | `GET /history` → `[]`; UI copy explains 50-op snapshots |
+| 12 | Logs | **Pass with warnings** | Server: no crashes; AI: Chroma telemetry warnings only (non-fatal) |
 
-Mock AI mode assumed for any future browser AI steps (`AI_MOCK_MODE=true` / no real OpenAI key). Real OpenAI path was **not** validated.
+### Frontend smoke (`http://localhost:3000`)
 
-### Full-stack checklist — not executed (blocked)
+| Check | Result |
+|-------|--------|
+| Login User A | **Pass** |
+| Document list shows shared doc + Owner label | **Pass** |
+| Open document → editor + Connected / joined room | **Pass** |
+| Share panel + collaborator row | **Pass** |
+| Index for RAG triggered | **Pass** (in progress → joined room) |
 
-| # | Area | Validated? |
-|---|------|------------|
-| 1 | `docker ps` — all services healthy | No |
-| 2 | `GET http://localhost:5000/health` | No |
-| 3 | `GET http://localhost:8000/health` | No |
-| 4 | Frontend `http://localhost:3000` | No |
-| 5 | Auth — register/login User A & B, `/auth/me` | No |
-| 6 | Documents — create, list, open, owner delete | No |
-| 7 | Collaborators — share write, User B edit, User A sees edit; read-only block | No |
-| 8 | Two-tab OT — insert, delete, replace, revision sync | No |
-| 9 | Remote cursor/selection indicators (two users) | No |
-| 10 | AI/RAG mock — Index, Complete, Explain, Chat, RAG refs | No |
-| 11 | Version history — load; restore if snapshot exists | No |
-| 12 | `docker compose logs server` / `ai-service` — no crashes | No |
-| 13 | `docker compose down` clean teardown | No |
+Not exercised in browser automation this run: AI Complete, Explain, Chat buttons after index; Load History restore; User B session; simultaneous typing/replace; remote caret colors.
 
-### Re-run procedure (when Docker is available)
+### Post-teardown static checks — pass
+
+`npm run check` (server), `npm run build` (client), `python -m py_compile` (ai-service).
+
+### Still needs manual proof
+
+- Two browser tabs or two accounts: insert, delete, replace-over-selection, revision sync.
+- Colored remote cursor/selection with two distinct users.
+- Snapshot restore after 50+ operations.
+- Real OpenAI path (`AI_MOCK_MODE=false` + valid key) — **not** tested.
+
+### Re-run procedure
 
 ```bash
 docker compose up -d --build
-docker compose run --rm server npm run init-db   # first time only
-# health: localhost:5000/health, localhost:8000/health
-# browser: localhost:3000 — follow docs/DEMO_SCRIPT.md
+docker compose exec server npm run init-db   # first time only
+# API: register/login, share, test-ws
+# Browser: http://localhost:3000 — docs/DEMO_SCRIPT.md
 docker compose down
 ```
-
-Record pass/fail per row above and update this section (or open a follow-up commit).
 
 ---
 

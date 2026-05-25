@@ -167,7 +167,7 @@ This project uses **prototype-level OT**, not full Google Docs–grade CRDT edit
 ```text
 1. User clicks "Index for RAG"
    → POST /ai/index (Node) → POST /index (FastAPI)
-   → File chunked → embeddings stored in ChromaDB (per codebase_id)
+   → File chunked on function/class boundaries (regex + tiktoken budgets) → embeddings stored in ChromaDB (per codebase_id)
 
 2. User runs Complete / Explain / Chat
    → Node proxy → FastAPI retrieves top-k chunks from ChromaDB

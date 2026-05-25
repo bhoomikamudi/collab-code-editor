@@ -20,7 +20,20 @@ import {
   restoreDocumentSnapshot
 } from "./api";
 
-const WS_URL = "ws://localhost:5000";
+function getWebSocketUrl() {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+
+  if (import.meta.env.DEV) {
+    return "ws://localhost:5000";
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws`;
+}
+
+const WS_URL = getWebSocketUrl();
 
 function applySimpleOperation(content, operation) {
   if (!operation || typeof operation !== "object") {

@@ -111,6 +111,19 @@ Open `http://localhost:3000` in Chrome or Edge.
 
 ---
 
+## 3:00 — Remote cursor and selection indicators
+
+1. Keep the same two tabs on the same document (ideally **two different accounts** so each tab is a distinct color).
+2. In **Tab A**, click to move the caret — **Tab B** should show a **colored vertical caret** and a small **email label** above it.
+3. In **Tab A**, drag to select a range — **Tab B** should show a **lightly highlighted selection** in that user’s color (plus the caret at the head).
+4. Point to the footer **Presence:** line — emails still list active users (panel unchanged).
+
+**Say:** "Cursor updates use CURSOR / CURSOR_UPDATE over WebSocket with Redis TTL presence; decorations are visual only and do not change document revisions."
+
+**Note:** Two tabs with the **same login** may hide your own remote caret (filtered locally). Use two accounts for the clearest demo.
+
+---
+
 ## 3:20 — Engineering wrap-up (optional, if time)
 
 Quickly mention:
@@ -130,3 +143,4 @@ Quickly mention:
 | No snapshots | Need 50+ operations between snapshots; use typing or AI Complete |
 | Second tab not syncing | Ensure both tabs joined the same document |
 | Replace not appearing in other tab | Select text, type over it (not only append); check revision increments in both tabs |
+| No colored caret in other tab | Use two different accounts, or confirm Tab B is connected; move caret (selection change sends CURSOR) |

@@ -172,7 +172,7 @@ This project uses **prototype-level OT**, not full Google Docs–grade CRDT edit
 2. User runs Complete / Explain / Chat
    → Node proxy → FastAPI retrieves top-k chunks from ChromaDB
    → Prompt built with code context + RAG snippets
-   → OpenAI API OR mock response (USE_MOCK_AI=true)
+   → OpenAI API (LangChain) OR mock response (`AI_MOCK_MODE=true`)
 
 3. UI shows answer + RAG reference filenames/lines
 ```
@@ -230,10 +230,10 @@ OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 EMBEDDING_MODEL=text-embedding-3-small
 CHROMA_DB_DIR=/app/chroma_data
-USE_MOCK_AI=true
+AI_MOCK_MODE=true
 ```
 
-For real OpenAI calls: set a valid `OPENAI_API_KEY` and `USE_MOCK_AI=false`.
+**AI modes:** `AI_MOCK_MODE=true` (default without a key) uses deterministic mock LLM + embedding responses. Set `AI_MOCK_MODE=false` and provide `OPENAI_API_KEY` for real `gpt-4o-mini` chat and `text-embedding-3-small` embeddings via LangChain + ChromaDB. Legacy `USE_MOCK_AI` is still supported as an alias.
 
 ### 3. Start services
 
@@ -271,7 +271,7 @@ Password: password123
 | File | Variables |
 |------|-----------|
 | `server/.env` | `PORT`, `CLIENT_URL`, `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `AI_SERVICE_URL` |
-| `ai-service/.env` | `OPENAI_API_KEY`, `OPENAI_MODEL`, `EMBEDDING_MODEL`, `CHROMA_DB_DIR`, `USE_MOCK_AI` |
+| `ai-service/.env` | `AI_MOCK_MODE`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `EMBEDDING_MODEL`, `CHROMA_DB_DIR` |
 | `client/.env` (optional) | `VITE_API_BASE_URL`, `VITE_WS_URL` — defaults work for local Docker |
 
 Production-style variables: see [deploy/env.prod.example](./deploy/env.prod.example) and [DEPLOYMENT.md](./DEPLOYMENT.md).

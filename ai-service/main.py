@@ -5,28 +5,36 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from config import (
+    AI_MOCK_MODE,
+    CLIENT_URL,
+    EMBEDDING_MODEL,
+    OPENAI_MODEL,
+    require_openai_api_key,
+)
 from rag_store import index_codebase, retrieve_relevant_chunks
 
 load_dotenv()
+
+
+def get_cors_origins() -> List[str]:
+    origins = os.getenv("CLIENT_URL", CLIENT_URL)
+    return [origin.strip() for origin in origins.split(",") if origin.strip()]
+
 
 app = FastAPI(title="Collab Code Editor AI Service")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-USE_MOCK_AI = os.getenv("USE_MOCK_AI", "false").lower() == "true"
-
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 class CodeFile(BaseModel):
@@ -96,6 +104,29 @@ class ChatResponse(BaseModel):
     rag_chunks: List[RagChunk] = []
 
 
+_llm_client = None
+
+
+def get_llm() -> ChatOpenAI:
+    global _llm_client
+
+    if _llm_client is None:
+        _llm_client = ChatOpenAI(
+            model=OPENAI_MODEL,
+            temperature=0.2,
+            api_key=require_openai_api_key(),
+        )
+
+    return _llm_client
+
+
+def ensure_real_mode_configured() -> None:
+    try:
+        require_openai_api_key()
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
 def build_rag_chunks(query: str, codebase_id: Optional[str]) -> List[RagChunk]:
     retrieved_chunks = retrieve_relevant_chunks(
         query=query,
@@ -132,30 +163,54 @@ def format_rag_context(rag_chunks: List[RagChunk]) -> str:
     )
 
 
+def invoke_langchain_llm(system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+    llm = get_llm().bind(max_tokens=max_tokens)
+    response = llm.invoke(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
+    )
+    return (response.content or "").strip()
+
+
 @app.get("/health")
 def health_check():
     return {
         "status": "ok",
         "service": "collab-code-editor-ai-service",
         "timestamp": datetime.utcnow().isoformat(),
+        "ai_mode": "mock" if AI_MOCK_MODE else "openai",
+        "chat_model": "mock-ai" if AI_MOCK_MODE else OPENAI_MODEL,
+        "embedding_model": "mock-embedding" if AI_MOCK_MODE else EMBEDDING_MODEL,
+        "openai_api_key_configured": not AI_MOCK_MODE,
     }
 
 
 @app.post("/index", response_model=IndexResponse)
 def index_codebase_endpoint(request: IndexRequest):
+    if not AI_MOCK_MODE:
+        ensure_real_mode_configured()
+
     try:
         result = index_codebase(
             codebase_id=request.codebase_id,
             files=[file_item.model_dump() for file_item in request.files],
         )
 
-        return IndexResponse(**result)
+        return IndexResponse(
+            codebase_id=result["codebase_id"],
+            files_indexed=result["files_indexed"],
+            chunks_indexed=result["chunks_indexed"],
+        )
 
+    except ValueError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(
             status_code=500,
             detail=f"Codebase indexing failed: {str(error)}",
-        )
+        ) from error
 
 
 @app.post("/complete", response_model=CompletionResponse)
@@ -165,7 +220,7 @@ def complete_code(request: CompletionRequest):
 
     rag_chunks = build_rag_chunks(before_cursor, request.codebase_id)
 
-    if USE_MOCK_AI:
+    if AI_MOCK_MODE:
         if rag_chunks:
             first_chunk = rag_chunks[0]
             return CompletionResponse(
@@ -186,11 +241,7 @@ def complete_code(request: CompletionRequest):
             rag_chunks=[],
         )
 
-    if not OPENAI_API_KEY or OPENAI_API_KEY == "paste_your_openai_api_key_here":
-        raise HTTPException(
-            status_code=500,
-            detail="OPENAI_API_KEY is not configured",
-        )
+    ensure_real_mode_configured()
 
     user_instruction = request.instruction or (
         "Continue the code from the cursor position. "
@@ -198,8 +249,6 @@ def complete_code(request: CompletionRequest):
     )
 
     prompt = f"""
-You are an expert software engineer helping with code completion.
-
 Language: {request.language}
 
 User instruction:
@@ -219,47 +268,37 @@ Do not include markdown formatting.
 """
 
     try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a precise coding assistant. "
-                        "Use retrieved codebase context when helpful. "
-                        "Return only useful code."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=0.2,
+        completion = invoke_langchain_llm(
+            system_prompt=(
+                "You are a precise coding assistant. "
+                "Use retrieved codebase context when helpful. "
+                "Return only useful code."
+            ),
+            user_prompt=prompt,
             max_tokens=220,
         )
 
-        completion = response.choices[0].message.content or ""
-
         return CompletionResponse(
-            completion=completion.strip(),
+            completion=completion,
             model=OPENAI_MODEL,
             language=request.language,
             rag_chunks=rag_chunks,
         )
 
+    except HTTPException:
+        raise
     except Exception as error:
         raise HTTPException(
             status_code=500,
             detail=f"AI completion failed: {str(error)}",
-        )
+        ) from error
 
 
 @app.post("/explain", response_model=ExplainResponse)
 def explain_code(request: ExplainRequest):
     rag_chunks = build_rag_chunks(request.selected_code, request.codebase_id)
 
-    if USE_MOCK_AI:
+    if AI_MOCK_MODE:
         reference = ""
 
         if rag_chunks:
@@ -281,8 +320,7 @@ def explain_code(request: ExplainRequest):
             rag_chunks=rag_chunks,
         )
 
-    if not OPENAI_API_KEY or OPENAI_API_KEY == "paste_your_openai_api_key_here":
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+    ensure_real_mode_configured()
 
     prompt = f"""
 Explain the selected code clearly and concisely.
@@ -299,33 +337,28 @@ Explain what it does, important inputs/outputs, and any risks or edge cases.
 """
 
     try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You explain code clearly with practical engineering detail.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
+        explanation = invoke_langchain_llm(
+            system_prompt=(
+                "You explain code clearly with practical engineering detail."
+            ),
+            user_prompt=prompt,
             max_tokens=320,
         )
 
-        explanation = response.choices[0].message.content or ""
-
         return ExplainResponse(
-            explanation=explanation.strip(),
+            explanation=explanation,
             model=OPENAI_MODEL,
             language=request.language,
             rag_chunks=rag_chunks,
         )
 
+    except HTTPException:
+        raise
     except Exception as error:
         raise HTTPException(
             status_code=500,
             detail=f"AI explanation failed: {str(error)}",
-        )
+        ) from error
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -333,7 +366,7 @@ def chat_with_codebase(request: ChatRequest):
     query = f"{request.question}\n\n{request.code_context}"
     rag_chunks = build_rag_chunks(query, request.codebase_id)
 
-    if USE_MOCK_AI:
+    if AI_MOCK_MODE:
         if rag_chunks:
             references = ", ".join(
                 [
@@ -363,8 +396,7 @@ def chat_with_codebase(request: ChatRequest):
             rag_chunks=[],
         )
 
-    if not OPENAI_API_KEY or OPENAI_API_KEY == "paste_your_openai_api_key_here":
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+    ensure_real_mode_configured()
 
     prompt = f"""
 You are answering questions about a codebase.
@@ -384,33 +416,26 @@ Answer with practical detail. Mention file references when useful.
 """
 
     try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a codebase-aware assistant. "
-                        "Ground your answer in retrieved code context."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
+        answer = invoke_langchain_llm(
+            system_prompt=(
+                "You are a codebase-aware assistant. "
+                "Ground your answer in retrieved code context."
+            ),
+            user_prompt=prompt,
             max_tokens=420,
         )
 
-        answer = response.choices[0].message.content or ""
-
         return ChatResponse(
-            answer=answer.strip(),
+            answer=answer,
             model=OPENAI_MODEL,
             language=request.language,
             rag_chunks=rag_chunks,
         )
 
+    except HTTPException:
+        raise
     except Exception as error:
         raise HTTPException(
             status_code=500,
             detail=f"Codebase chat failed: {str(error)}",
-        )
+        ) from error

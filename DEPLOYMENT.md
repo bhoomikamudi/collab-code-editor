@@ -67,7 +67,8 @@ Edit `.env` before starting the stack.
 | `OPENAI_API_KEY` | No | empty | Optional OpenAI key for real model calls |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | Completion/chat model |
 | `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model for RAG |
-| `USE_MOCK_AI` | No | `true` | `true` = no paid API usage; set `false` when using a real key |
+| `AI_MOCK_MODE` | No | `true` | `true` = mock LLM/embeddings (no key); `false` requires `OPENAI_API_KEY` for real OpenAI via LangChain |
+| `USE_MOCK_AI` | No | — | Legacy alias for `AI_MOCK_MODE` |
 
 ### Optional frontend build overrides
 

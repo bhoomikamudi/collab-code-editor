@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import CodeMirror from "@uiw/react-codemirror";
+import CodeMirror, { ExternalChange } from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import "./index.css";
 import {
@@ -130,6 +130,7 @@ function App() {
   const [sharePermission, setSharePermission] = useState("write");
 
   const wsRef = useRef(null);
+  const editorViewRef = useRef(null);
   const editorValueRef = useRef("");
   const suppressChangeRef = useRef(false);
   const revisionRef = useRef(0);
@@ -169,6 +170,31 @@ function App() {
   useEffect(() => {
     canWriteDocumentRef.current = canWriteDocument;
   }, [canWriteDocument]);
+
+  function applyEditorContent(content) {
+    const nextContent = content ?? "";
+    editorValueRef.current = nextContent;
+    setEditorValue(nextContent);
+
+    const view = editorViewRef.current;
+    if (!view) {
+      return;
+    }
+
+    suppressChangeRef.current = true;
+    const current = view.state.doc.toString();
+
+    if (current !== nextContent) {
+      view.dispatch({
+        changes: { from: 0, to: current.length, insert: nextContent },
+        annotations: [ExternalChange.of(true)]
+      });
+    }
+
+    setTimeout(() => {
+      suppressChangeRef.current = false;
+    }, 0);
+  }
 
   useEffect(() => {
     if (!selectedDocument || !isDocumentOwner(selectedDocument)) {
@@ -222,9 +248,8 @@ function App() {
       const message = JSON.parse(event.data);
 
       if (message.type === "DOCUMENT_JOINED") {
-        suppressChangeRef.current = true;
-        setEditorValue(message.document.content || "");
-        editorValueRef.current = message.document.content || "";
+        const joinedContent = message.document.content || "";
+        applyEditorContent(joinedContent);
         const joinedRevision = message.revision || 0;
         setRevision(joinedRevision);
         revisionRef.current = joinedRevision;
@@ -250,9 +275,6 @@ function App() {
             ? "Joined document (read-only)."
             : "Joined real-time document room."
         );
-        setTimeout(() => {
-          suppressChangeRef.current = false;
-        }, 0);
       }
 
       if (message.type === "OPERATION_ACK") {
@@ -271,20 +293,15 @@ function App() {
       }
 
       if (message.type === "REMOTE_OPERATION") {
-        suppressChangeRef.current = true;
         const nextValue = applySimpleOperation(
           editorValueRef.current,
           message.operation
         );
 
-        setEditorValue(nextValue);
-        editorValueRef.current = nextValue;
+        applyEditorContent(nextValue);
         setRevision(message.revision);
+        revisionRef.current = message.revision;
         setStatus(`Remote update received at revision ${message.revision}.`);
-
-        setTimeout(() => {
-          suppressChangeRef.current = false;
-        }, 0);
       }
 
       if (message.type === "CURSOR_UPDATE") {
@@ -446,16 +463,10 @@ function App() {
     try {
       const data = await restoreDocumentSnapshot(selectedDocument.id, snapshotId);
 
-      suppressChangeRef.current = true;
       setSelectedDocument(data.document);
-      setEditorValue(data.document.content || "");
-      editorValueRef.current = data.document.content || "";
+      applyEditorContent(data.document.content || "");
       setStatus(`Restored from snapshot revision ${data.restored_from.revision}.`);
       setHistoryStatus("Snapshot restored successfully.");
-
-      setTimeout(() => {
-        suppressChangeRef.current = false;
-      }, 0);
 
       await loadDocuments();
       await loadHistory(selectedDocument.id);
@@ -588,13 +599,21 @@ function App() {
     flushPendingOperations();
   }
 
-  function handleEditorChange(nextValue) {
+  function handleEditorChange(nextValue, viewUpdate) {
     if (suppressChangeRef.current) {
       return;
     }
 
-    setEditorValue(nextValue);
     editorValueRef.current = nextValue;
+    setEditorValue(nextValue);
+
+    if (
+      viewUpdate?.docChanged &&
+      canWriteDocumentRef.current
+    ) {
+      const operations = getOperationsFromCodeMirrorChanges(viewUpdate.changes);
+      enqueueCollaborationOperations(operations, { silent: true });
+    }
   }
 
   function handleEditorUpdate(viewUpdate) {
@@ -604,15 +623,6 @@ function App() {
       from: selection.from,
       to: selection.to
     });
-
-    if (
-      viewUpdate.docChanged &&
-      !suppressChangeRef.current &&
-      canWriteDocumentRef.current
-    ) {
-      const operations = getOperationsFromCodeMirrorChanges(viewUpdate.changes);
-      enqueueCollaborationOperations(operations, { silent: true });
-    }
 
     if (!viewUpdate.selectionSet || !wsRef.current) {
       return;
@@ -640,16 +650,10 @@ function App() {
 
     const previousValue = editorValueRef.current;
 
-    suppressChangeRef.current = true;
-    setEditorValue(nextValue);
-    editorValueRef.current = nextValue;
+    applyEditorContent(nextValue);
 
     const operations = getOperationsFromTextDiff(previousValue, nextValue);
     enqueueCollaborationOperations(operations, { silent: true });
-
-    setTimeout(() => {
-      suppressChangeRef.current = false;
-    }, 0);
   }
 
   async function handleIndexCurrentDocument() {
@@ -1086,11 +1090,14 @@ function App() {
                 </div>
 
                 <CodeMirror
-                  value={editorValue}
+                  key={selectedDocument.id}
                   height="560px"
                   extensions={editorExtensions}
                   theme="dark"
                   editable={canWriteDocument}
+                  onCreateEditor={(view) => {
+                    editorViewRef.current = view;
+                  }}
                   onChange={handleEditorChange}
                   onUpdate={handleEditorUpdate}
                   basicSetup={{

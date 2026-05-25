@@ -44,7 +44,7 @@
 | Screenshots / demo GIF in repo | **Missing** | `docs/SCREENSHOTS.md` lists desired assets; **0 image/gif/video files** in repository (glob `*.{png,gif,mp4}` → none) | Capture and commit assets or link externally |
 | 3-minute demo video | **Needs Manual Proof** | `docs/DEMO_SCRIPT.md` provides script only | No video file or hosted link in repo |
 | Working demo URL (public) | **Missing** | README states no public deployment unless user hosts; no production URL in docs | Deploy to Railway/EC2/etc. and add real URL to README |
-| Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `collabOperations.js` + queued WebSocket ops; **manual validation** — sequential User A/B browser sessions on same doc; insert + backspace delete synced to PostgreSQL; revision counter increments | Same-browser-profile automation cannot hold two accounts at once; replace-over-selection and simultaneous typing need a second browser/incognito recording |
+| Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `collabOperations.js` + queued WebSocket ops; **manual validation** — insert, backspace delete, **full-document replace** sync to PostgreSQL; revision counter increments | Simultaneous two-tab typing not proven; partial-line replace not exercised in browser automation (CodeMirror selection not set by MCP keyboard) |
 | Document snapshots every 50 operations | **Complete** | `server/src/websocketServer.js` — `SNAPSHOT_INTERVAL = 50`; `maybeCreateSnapshot` on operation ack path | None |
 | Version history + restore workflow | **Complete** | `GET /documents/:id/history`, `POST .../restore/:snapshotId`; UI: Load History, Restore in `App.jsx` | None |
 | AI Complete | **Complete** | `POST /ai/complete` proxy; `handleAiComplete` in `App.jsx` | Mock mode default |
@@ -52,7 +52,7 @@
 | Codebase Chat | **Complete** | `POST /ai/chat`; `handleChatSubmit` | Mock mode default |
 | RAG references in UI | **Complete** | `formatRagReferences` in `App.jsx`; `rag_chunks` from API; Index for RAG button | Retrieval uses mock embeddings unless extended |
 | Colored remote cursors inside editor | **Partial** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations; `CURSOR` / `CURSOR_UPDATE` in `websocketServer.js`; **manual validation** — User B WebSocket client sent `CURSOR` with selection range while User A had doc open | Colored caret/selection highlight **not visually confirmed** in browser screenshot during this run (B session disconnected quickly; presence footer showed local user only) |
-| Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert; `App.jsx` operation queue per `OPERATION_ACK` | Backend still uses insert/delete only; simultaneous heavy edits need manual two-tab validation |
+| Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert with sequential position offsets; `App.jsx` — uncontrolled CodeMirror + `ExternalChange` external sync (fixes controlled `value` latch revert); **browser verified (2026-05-25)** — full-document replace persists correctly | Keyboard Ctrl+A in browser automation tools may not set CodeMirror selection; human editing verified via replace transaction |
 | Redis pub/sub echo-loop prevention | **Complete** | `pubsub.js` — `serverInstanceId`, skip if `event.serverInstanceId === serverInstanceId` | None |
 | Final Docker Compose run proven after latest changes | **Partial (2026-05-25)** | Compose + API/WebSocket + **manual browser workflows** validated on `phase3-manual-browser-validation`; WebSocket persistence bug fixed in `App.jsx` | Simultaneous dual-browser GIF/recording and remote-cursor visuals still pending — see [Manual browser validation](#manual-browser-validation) |
 | `DEPLOYMENT.md` / env templates without secrets | **Complete** | `DEPLOYMENT.md`, `deploy/env.prod.example`, `server/.env.example`, `ai-service/.env.example` | None |
@@ -144,6 +144,7 @@ docker compose down
 | Issue | Root cause | Fix |
 |-------|------------|-----|
 | Browser edits stuck on “Joined real-time document room”; operations not persisting | WebSocket `useEffect` depended on `[selectedDocument]`; `DOCUMENT_JOINED` metadata update re-ran the effect and **closed/reopened** the socket, breaking the operation queue | `client/src/App.jsx` — WebSocket effect deps → `[selectedDocument?.id]`; collaborator loader → `[selectedDocument?.id, selectedDocument?.access_role]` |
+| Replace-over-selection appended text instead of replacing | `@uiw/react-codemirror` controlled `value` prop + 200ms typing latch could re-apply stale document text after CodeMirror had already applied a replace transaction | `App.jsx` — remove live `value` binding; sync external content via `EditorView.dispatch` + `ExternalChange`; derive OT ops from `onChange(value, viewUpdate)`; `collabOperations.js` — sequential position offsets for multi-region ChangeSets |
 
 ### Infrastructure (same as prior E2E run)
 
@@ -171,7 +172,7 @@ Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (regi
 | 7 | User B insert typing | **Partial** | Text appeared in B editor; persistence laggy vs REST snapshot during session |
 | 8 | Cross-user remote operation | **Pass** | B WebSocket `OPERATION` insert appeared in A browser (`REMOTE_OPERATION`) |
 | 9 | User A backspace delete | **Pass** | Removed appended function from editor content |
-| 10 | Replace-over-selection (Ctrl+A + type) | **Not verified** | Browser automation appended instead of replacing; needs human second-browser test |
+| 10 | Replace-over-selection (Ctrl+A + type) | **Fixed (2026-05-25)** | Full-document replace verified in browser (`// replaced via fill test` persisted to PostgreSQL); ChangeSet unit test for delete+insert at same position; MCP Ctrl+A keyboard does not set CM selection |
 | 11 | Revision increments | **Pass** | Editor header showed “Revision 5” |
 | 12 | Read-only collaborator | **Pass** | API re-share as `read`; B UI: “Collaborator (read) · read-only editor”, “Joined document (read-only)”; CodeMirror input blocked |
 | 13 | Write collaborator can edit | **Pass** | B typed while permission was `write` |
@@ -243,7 +244,7 @@ Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (regi
 |------|------------|
 | Server OT | **Implemented** — `ot` package, transform against Redis history (`otEngine.js`, `websocketServer.js`). |
 | Client OT | **Improved** — CodeMirror 6 `ChangeSet` → insert/delete (+ replace as delete+insert queue); no client-side ot.js transform. |
-| Replace | **Supported** — client maps replace to delete+insert; server accepts insert/delete only. |
+| Replace | **Supported** — client maps replace to delete+insert at adjusted positions; uncontrolled CodeMirror avoids controlled-value revert; full-document replace browser-verified. |
 | Remote cursors | **Implemented** — `remoteCursorExtension.js` decorations; `CURSOR`/`CURSOR_UPDATE` exercised via WebSocket script; **colored caret not browser-screenshot-verified** in manual validation run. |
 | Conflict handling | **Prototype-level** — suitable for portfolio demo with caveats, not spec-grade concurrent editing. |
 

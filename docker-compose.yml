@@ -57,9 +57,9 @@ services:
     depends_on:
       - server
       - ai-service
+    command: sh -c "npm install && npm run dev"
     volumes:
       - ./client:/app
-      - /app/node_modules
 
 volumes:
   postgres_data:

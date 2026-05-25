@@ -54,8 +54,82 @@
 | Colored remote cursors inside editor | **Complete** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations (caret widget + selection highlight); `App.jsx` filters local user; footer presence panel retained | Manual two-tab check recommended when Docker/browser testing is available |
 | Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert; `App.jsx` operation queue per `OPERATION_ACK` | Backend still uses insert/delete only; simultaneous heavy edits need manual two-tab validation |
 | Redis pub/sub echo-loop prevention | **Complete** | `pubsub.js` — `serverInstanceId`, skip if `event.serverInstanceId === serverInstanceId` | None |
-| Final Docker Compose run proven after latest changes | **Needs Manual Proof** | Docs describe `docker compose up`; no CI log or committed test report post–Tailwind/nginx | Re-run full stack and record results in README or CI |
+| Final Docker Compose run proven after latest changes | **Partial (2026-05-25)** | Compose + API/WebSocket validated; client container fix applied; browser smoke on `:3000` | Two-tab OT/replace and dual-user remote cursors still need manual browser proof — see [Full Docker E2E validation](#full-docker-e2e-validation) |
 | `DEPLOYMENT.md` / env templates without secrets | **Complete** | `DEPLOYMENT.md`, `deploy/env.prod.example`, `server/.env.example`, `ai-service/.env.example` | None |
+
+---
+
+## Full Docker E2E validation
+
+**Branch:** `phase3-full-docker-e2e-validation`  
+**Date:** 2026-05-25 (second run with Docker Desktop running)  
+**Overall status:** **Partial pass** — stack, REST, WebSocket, and mock AI validated; interactive two-tab UX not fully automated
+
+### Fixes applied during validation
+
+| Issue | Fix |
+|-------|-----|
+| `collab_client` exited: `Cannot find module 'tailwindcss'` | Moved Tailwind/PostCSS/Vite to `dependencies`; removed stale `/app/node_modules` anonymous volume; `command: npm install && npm run dev` in `docker-compose.yml` |
+
+### Infrastructure
+
+| Step | Result |
+|------|--------|
+| `docker compose up -d --build` | **Pass** (after client fix) |
+| `docker ps` | **Pass** — postgres, redis, server, ai-service, client running |
+| `GET /health` server `:5000` | **Pass** — `status: ok` |
+| `GET /health` ai-service `:8000` | **Pass** — `ai_mode: mock` |
+| `docker compose exec server npm run init-db` | **Pass** |
+| `docker compose down` | **Pass** |
+
+### API / WebSocket (PowerShell + `testWebSocket.js`)
+
+| # | Area | Result | Notes |
+|---|------|--------|-------|
+| 5 | Auth — register User A & B, `/auth/me` | **Pass** | |
+| 6 | Documents — create, list, metadata | **Pass** | `access_role`, `permission_level` on shared doc |
+| 7a | Share write → B lists/opens doc | **Pass** | |
+| 7b | B sends `OPERATION` via WebSocket | **Pass** | `OPERATION_ACK`, revision increments |
+| 7c | Re-share B as **read** → B `OPERATION` blocked | **Pass** | `ERROR: read-only access`; `can_write: false` on join |
+| 7d | B cannot delete document | **Pass** | HTTP 403 |
+| 8 | Two-tab insert/delete/replace in browser | **Not automated** | Needs manual two-tab demo |
+| 9 | Remote cursors (two users) | **Not automated** | Needs second browser/user session |
+| 10 | AI/RAG mock (REST) | **Pass** | index, complete, explain, chat; `rag_chunks` returned |
+| 11 | Version history | **Pass (empty)** | `GET /history` → `[]`; UI copy explains 50-op snapshots |
+| 12 | Logs | **Pass with warnings** | Server: no crashes; AI: Chroma telemetry warnings only (non-fatal) |
+
+### Frontend smoke (`http://localhost:3000`)
+
+| Check | Result |
+|-------|--------|
+| Login User A | **Pass** |
+| Document list shows shared doc + Owner label | **Pass** |
+| Open document → editor + Connected / joined room | **Pass** |
+| Share panel + collaborator row | **Pass** |
+| Index for RAG triggered | **Pass** (in progress → joined room) |
+
+Not exercised in browser automation this run: AI Complete, Explain, Chat buttons after index; Load History restore; User B session; simultaneous typing/replace; remote caret colors.
+
+### Post-teardown static checks — pass
+
+`npm run check` (server), `npm run build` (client), `python -m py_compile` (ai-service).
+
+### Still needs manual proof
+
+- Two browser tabs or two accounts: insert, delete, replace-over-selection, revision sync.
+- Colored remote cursor/selection with two distinct users.
+- Snapshot restore after 50+ operations.
+- Real OpenAI path (`AI_MOCK_MODE=false` + valid key) — **not** tested.
+
+### Re-run procedure
+
+```bash
+docker compose up -d --build
+docker compose exec server npm run init-db   # first time only
+# API: register/login, share, test-ws
+# Browser: http://localhost:3000 — docs/DEMO_SCRIPT.md
+docker compose down
+```
 
 ---
 
@@ -77,8 +151,8 @@
 |------|------------|
 | Server OT | **Implemented** — `ot` package, transform against Redis history (`otEngine.js`, `websocketServer.js`). |
 | Client OT | **Improved** — CodeMirror 6 `ChangeSet` → insert/delete (+ replace as delete+insert queue); no client-side ot.js transform. |
-| Replace | **Not supported** for sync. |
-| Remote cursors | **Data exists**, **visualization missing** in editor. |
+| Replace | **Supported** — client maps replace to delete+insert; server accepts insert/delete only. |
+| Remote cursors | **Implemented** — `remoteCursorExtension.js` decorations; not browser-verified in this run. |
 | Conflict handling | **Prototype-level** — suitable for portfolio demo with caveats, not spec-grade concurrent editing. |
 
 ### Deployment
@@ -113,7 +187,7 @@
 2. **WebSocket script** — `npm run test-ws` in Compose after clean build.
 3. **Multi-instance Redis pub/sub** — two `server` replicas behind nginx/Redis (prove cross-instance fan-out).
 4. **Real OpenAI path** — one run with `AI_MOCK_MODE=false` and valid key (completion + RAG); document results in README.
-5. **Full regression** — `docker compose up --build` and `docker compose -f docker-compose.prod.yml up --build` after changes; document pass/fail.
+5. **Full regression** — complete [Full Docker E2E validation](#full-docker-e2e-validation) checklist with Docker running; optional `docker-compose.prod.yml` smoke test.
 
 ### Deployment tasks
 
@@ -147,7 +221,7 @@
 
 ## Recruiter-safe one-line summary
 
-**“Full-stack real-time collab editor with JWT, Redis OT history, WebSocket sync, snapshots, FastAPI + LangChain/ChromaDB RAG (mock or real OpenAI modes), Docker/CI/nginx config — strong local prototype; remaining work is in-editor presence polish, public deployment, and demo media.”**
+**“Full-stack real-time collab editor with JWT, Redis OT history, WebSocket sync, snapshots, collaborators, in-editor remote cursors, FastAPI + LangChain/ChromaDB RAG (mock or real OpenAI modes), Docker/CI/nginx config — strong local prototype; full Compose E2E proof and public demo media still pending.”**
 
 ---
 

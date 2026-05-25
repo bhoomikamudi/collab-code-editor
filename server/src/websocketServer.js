@@ -1,6 +1,5 @@
 const WebSocket = require("ws");
 const jwt = require("jsonwebtoken");
-const { query } = require("./db");
 const {
   getOperationCount,
   getOperationsSince,
@@ -22,6 +21,7 @@ const {
   initPubSub,
   publishCollaborationEvent
 } = require("./pubsub");
+const { getDocumentAccess } = require("./documentAccess");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const SNAPSHOT_INTERVAL = 50;
@@ -80,18 +80,6 @@ async function publishRoomEvent(documentId, payload) {
   }
 }
 
-async function canAccessDocument(documentId, userId) {
-  const result = await query(
-    `SELECT d.id
-     FROM documents d
-     LEFT JOIN document_collaborators dc ON d.id = dc.document_id
-     WHERE d.id = $1 AND (d.owner_id = $2 OR dc.user_id = $2)`,
-    [documentId, userId]
-  );
-
-  return result.rows.length > 0;
-}
-
 async function maybeCreateSnapshot({
   documentId,
   content,
@@ -121,20 +109,22 @@ async function handleJoinDocument(ws, message) {
   }
 
   const decoded = jwt.verify(token, JWT_SECRET);
-  const hasAccess = await canAccessDocument(documentId, decoded.userId);
+  const access = await getDocumentAccess(documentId, decoded.userId);
 
-  if (!hasAccess) {
+  if (!access) {
     return sendJson(ws, {
       type: "ERROR",
       error: "You do not have access to this document"
     });
   }
 
-  const document = await getDocumentById(documentId);
   const revision = await getOperationCount(documentId);
 
   ws.user = decoded;
   ws.documentId = documentId;
+  ws.accessRole = access.access_role;
+  ws.permissionLevel = access.permission_level;
+  ws.canWrite = access.can_write;
 
   const room = getRoom(documentId);
   room.add(ws);
@@ -149,9 +139,12 @@ async function handleJoinDocument(ws, message) {
 
   sendJson(ws, {
     type: "DOCUMENT_JOINED",
-    document,
+    document: access.document,
     revision,
-    presence: activeUsers
+    presence: activeUsers,
+    access_role: access.access_role,
+    permission_level: access.permission_level,
+    can_write: access.can_write
   });
 
   const userJoinedPayload = {
@@ -182,6 +175,13 @@ async function handleOperation(ws, message) {
     return sendJson(ws, {
       type: "ERROR",
       error: "A valid operation is required"
+    });
+  }
+
+  if (ws.canWrite === false) {
+    return sendJson(ws, {
+      type: "ERROR",
+      error: "You have read-only access to this document"
     });
   }
 

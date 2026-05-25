@@ -5,32 +5,16 @@ const {
   listDocumentSnapshots,
   getDocumentSnapshot
 } = require("./snapshotStore");
+const {
+  getDocumentAccess,
+  listDocumentsForUser,
+  isDocumentOwner,
+  listDocumentCollaborators,
+  validatePermissionLevel,
+  canWriteAccess
+} = require("./documentAccess");
 
 const router = express.Router();
-
-async function canAccessDocument(documentId, userId) {
-  const result = await query(
-    `SELECT d.id
-     FROM documents d
-     LEFT JOIN document_collaborators dc ON d.id = dc.document_id
-     WHERE d.id = $1 AND (d.owner_id = $2 OR dc.user_id = $2)`,
-    [documentId, userId]
-  );
-
-  return result.rows.length > 0;
-}
-
-async function getDocumentByIdForUser(documentId, userId) {
-  const result = await query(
-    `SELECT d.id, d.title, d.content, d.owner_id, d.created_at, d.updated_at
-     FROM documents d
-     LEFT JOIN document_collaborators dc ON d.id = dc.document_id
-     WHERE d.id = $1 AND (d.owner_id = $2 OR dc.user_id = $2)`,
-    [documentId, userId]
-  );
-
-  return result.rows[0];
-}
 
 router.post("/", requireAuth, async (req, res) => {
   const { title, content } = req.body;
@@ -49,9 +33,15 @@ router.post("/", requireAuth, async (req, res) => {
       [title, content || "", req.user.userId]
     );
 
+    const document = {
+      ...result.rows[0],
+      access_role: "owner",
+      permission_level: "write"
+    };
+
     return res.status(201).json({
       message: "Document created successfully",
-      document: result.rows[0]
+      document
     });
   } catch (error) {
     console.error("Create document error:", error.message);
@@ -64,17 +54,10 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const result = await query(
-      `SELECT DISTINCT d.id, d.title, d.owner_id, d.created_at, d.updated_at
-       FROM documents d
-       LEFT JOIN document_collaborators dc ON d.id = dc.document_id
-       WHERE d.owner_id = $1 OR dc.user_id = $1
-       ORDER BY d.updated_at DESC`,
-      [req.user.userId]
-    );
+    const documents = await listDocumentsForUser(req.user.userId);
 
     return res.status(200).json({
-      documents: result.rows
+      documents
     });
   } catch (error) {
     console.error("List documents error:", error.message);
@@ -85,18 +68,151 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
+router.get("/:id/collaborators", requireAuth, async (req, res) => {
+  try {
+    const access = await getDocumentAccess(req.params.id, req.user.userId);
+
+    if (!access) {
+      return res.status(404).json({
+        error: "Document not found"
+      });
+    }
+
+    const collaborators = await listDocumentCollaborators(req.params.id);
+
+    return res.status(200).json({
+      collaborators
+    });
+  } catch (error) {
+    console.error("List collaborators error:", error.message);
+
+    return res.status(500).json({
+      error: "Failed to list collaborators"
+    });
+  }
+});
+
+router.post("/:id/collaborators", requireAuth, async (req, res) => {
+  const { email, permission_level: permissionLevel } = req.body;
+
+  if (!email || typeof email !== "string") {
+    return res.status(400).json({
+      error: "Collaborator email is required"
+    });
+  }
+
+  if (!validatePermissionLevel(permissionLevel)) {
+    return res.status(400).json({
+      error: "permission_level must be read or write"
+    });
+  }
+
+  try {
+    const owner = await isDocumentOwner(req.params.id, req.user.userId);
+
+    if (!owner) {
+      return res.status(403).json({
+        error: "Only the document owner can manage collaborators"
+      });
+    }
+
+    const userResult = await query(
+      `SELECT id, email FROM users WHERE LOWER(email) = LOWER($1)`,
+      [email.trim()]
+    );
+
+    const collaboratorUser = userResult.rows[0];
+
+    if (!collaboratorUser) {
+      return res.status(404).json({
+        error: "No registered user found with that email"
+      });
+    }
+
+    if (collaboratorUser.id === req.user.userId) {
+      return res.status(400).json({
+        error: "You cannot add yourself as a collaborator"
+      });
+    }
+
+    await query(
+      `INSERT INTO document_collaborators (document_id, user_id, permission_level)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (document_id, user_id)
+       DO UPDATE SET permission_level = EXCLUDED.permission_level`,
+      [req.params.id, collaboratorUser.id, permissionLevel]
+    );
+
+    const collaborators = await listDocumentCollaborators(req.params.id);
+
+    return res.status(201).json({
+      message: "Collaborator added successfully",
+      collaborator: {
+        user_id: collaboratorUser.id,
+        email: collaboratorUser.email,
+        permission_level: permissionLevel
+      },
+      collaborators
+    });
+  } catch (error) {
+    console.error("Add collaborator error:", error.message);
+
+    return res.status(500).json({
+      error: "Failed to add collaborator"
+    });
+  }
+});
+
+router.delete("/:id/collaborators/:userId", requireAuth, async (req, res) => {
+  try {
+    const owner = await isDocumentOwner(req.params.id, req.user.userId);
+
+    if (!owner) {
+      return res.status(403).json({
+        error: "Only the document owner can manage collaborators"
+      });
+    }
+
+    const deleteResult = await query(
+      `DELETE FROM document_collaborators
+       WHERE document_id = $1 AND user_id = $2
+       RETURNING user_id`,
+      [req.params.id, req.params.userId]
+    );
+
+    if (deleteResult.rows.length === 0) {
+      return res.status(404).json({
+        error: "Collaborator not found"
+      });
+    }
+
+    const collaborators = await listDocumentCollaborators(req.params.id);
+
+    return res.status(200).json({
+      message: "Collaborator removed successfully",
+      collaborators
+    });
+  } catch (error) {
+    console.error("Remove collaborator error:", error.message);
+
+    return res.status(500).json({
+      error: "Failed to remove collaborator"
+    });
+  }
+});
+
 router.get("/:id", requireAuth, async (req, res) => {
   try {
-    const document = await getDocumentByIdForUser(req.params.id, req.user.userId);
+    const access = await getDocumentAccess(req.params.id, req.user.userId);
 
-    if (!document) {
+    if (!access) {
       return res.status(404).json({
         error: "Document not found"
       });
     }
 
     return res.status(200).json({
-      document
+      document: access.document
     });
   } catch (error) {
     console.error("Get document error:", error.message);
@@ -109,9 +225,9 @@ router.get("/:id", requireAuth, async (req, res) => {
 
 router.get("/:id/history", requireAuth, async (req, res) => {
   try {
-    const hasAccess = await canAccessDocument(req.params.id, req.user.userId);
+    const access = await getDocumentAccess(req.params.id, req.user.userId);
 
-    if (!hasAccess) {
+    if (!access) {
       return res.status(404).json({
         error: "Document not found"
       });
@@ -133,11 +249,17 @@ router.get("/:id/history", requireAuth, async (req, res) => {
 
 router.post("/:id/restore/:snapshotId", requireAuth, async (req, res) => {
   try {
-    const hasAccess = await canAccessDocument(req.params.id, req.user.userId);
+    const access = await getDocumentAccess(req.params.id, req.user.userId);
 
-    if (!hasAccess) {
+    if (!access) {
       return res.status(404).json({
         error: "Document not found"
+      });
+    }
+
+    if (!canWriteAccess(access)) {
+      return res.status(403).json({
+        error: "You have read-only access to this document"
       });
     }
 
@@ -157,9 +279,15 @@ router.post("/:id/restore/:snapshotId", requireAuth, async (req, res) => {
       [snapshot.content, req.params.id]
     );
 
+    const document = {
+      ...result.rows[0],
+      access_role: access.access_role,
+      permission_level: access.permission_level
+    };
+
     return res.status(200).json({
       message: "Document restored successfully",
-      document: result.rows[0],
+      document,
       restored_from: {
         snapshot_id: snapshot.id,
         revision: snapshot.revision,
@@ -177,15 +305,15 @@ router.post("/:id/restore/:snapshotId", requireAuth, async (req, res) => {
 
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
-    const document = await getDocumentByIdForUser(req.params.id, req.user.userId);
+    const access = await getDocumentAccess(req.params.id, req.user.userId);
 
-    if (!document) {
+    if (!access) {
       return res.status(404).json({
         error: "Document not found"
       });
     }
 
-    if (document.owner_id !== req.user.userId) {
+    if (access.access_role !== "owner") {
       return res.status(403).json({
         error: "Only the document owner can delete this document"
       });
@@ -200,8 +328,8 @@ router.delete("/:id", requireAuth, async (req, res) => {
     return res.status(200).json({
       message: "Document deleted successfully",
       document: {
-        id: document.id,
-        title: document.title
+        id: access.document.id,
+        title: access.document.title
       }
     });
   } catch (error) {

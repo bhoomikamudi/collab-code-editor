@@ -15,6 +15,9 @@ import {
   indexCodebase,
   listDocumentHistory,
   listDocuments,
+  listDocumentCollaborators,
+  addDocumentCollaborator,
+  removeDocumentCollaborator,
   login,
   register,
   restoreDocumentSnapshot
@@ -50,6 +53,34 @@ function getCodebaseId(user, document) {
   }
 
   return `user-${user.id}-document-${document.id}`;
+}
+
+function isDocumentOwner(document) {
+  return document?.access_role === "owner";
+}
+
+function documentCanWrite(document) {
+  if (!document) {
+    return false;
+  }
+
+  if (document.access_role === "owner") {
+    return true;
+  }
+
+  return document.permission_level === "write";
+}
+
+function formatAccessLabel(document) {
+  if (!document) {
+    return "";
+  }
+
+  if (isDocumentOwner(document)) {
+    return "Owner";
+  }
+
+  return `Collaborator (${document.permission_level || "read"})`;
 }
 
 function formatRagReferences(chunks) {
@@ -93,6 +124,10 @@ function App() {
 
   const [snapshots, setSnapshots] = useState([]);
   const [historyStatus, setHistoryStatus] = useState("No history loaded yet.");
+  const [canWriteDocument, setCanWriteDocument] = useState(true);
+  const [collaborators, setCollaborators] = useState([]);
+  const [shareEmail, setShareEmail] = useState("");
+  const [sharePermission, setSharePermission] = useState("write");
 
   const wsRef = useRef(null);
   const editorValueRef = useRef("");
@@ -100,6 +135,7 @@ function App() {
   const revisionRef = useRef(0);
   const pendingOperationsRef = useRef([]);
   const sendingOperationRef = useRef(false);
+  const canWriteDocumentRef = useRef(true);
 
   useEffect(() => {
     async function loadSession() {
@@ -129,6 +165,28 @@ function App() {
   useEffect(() => {
     revisionRef.current = revision;
   }, [revision]);
+
+  useEffect(() => {
+    canWriteDocumentRef.current = canWriteDocument;
+  }, [canWriteDocument]);
+
+  useEffect(() => {
+    if (!selectedDocument || !isDocumentOwner(selectedDocument)) {
+      setCollaborators([]);
+      return;
+    }
+
+    async function loadCollaborators() {
+      try {
+        const data = await listDocumentCollaborators(selectedDocument.id);
+        setCollaborators(data.collaborators || []);
+      } catch (error) {
+        setCollaborators([]);
+      }
+    }
+
+    loadCollaborators();
+  }, [selectedDocument]);
 
   // Rebuild remote cursor decorations only when presence changes (not each keystroke).
   const editorExtensions = useMemo(
@@ -173,7 +231,25 @@ function App() {
         pendingOperationsRef.current = [];
         sendingOperationRef.current = false;
         setPresence(message.presence || []);
-        setStatus("Joined real-time document room.");
+        setCanWriteDocument(message.can_write !== false);
+        setSelectedDocument((current) => {
+          if (!current || current.id !== message.document?.id) {
+            return current;
+          }
+
+          return {
+            ...current,
+            ...message.document,
+            access_role: message.access_role || current.access_role,
+            permission_level:
+              message.permission_level || current.permission_level
+          };
+        });
+        setStatus(
+          message.can_write === false
+            ? "Joined document (read-only)."
+            : "Joined real-time document room."
+        );
         setTimeout(() => {
           suppressChangeRef.current = false;
         }, 0);
@@ -316,7 +392,12 @@ function App() {
         'function helloWorld() {\n  console.log("Hello from Collab Code Editor");\n}'
       );
 
-      setSelectedDocument(data.document);
+      setSelectedDocument({
+        ...data.document,
+        access_role: "owner",
+        permission_level: "write"
+      });
+      setCanWriteDocument(true);
       setNewTitle("Untitled JavaScript File");
       setStatus("Document created successfully.");
       setSnapshots([]);
@@ -412,7 +493,75 @@ function App() {
     );
   }
 
+  function selectDocument(document) {
+    setSelectedDocument(document);
+    setCanWriteDocument(documentCanWrite(document));
+    setAiOutput("");
+    setRagReferences([]);
+    setLastIndexedCodebaseId(null);
+    setSnapshots([]);
+    setHistoryStatus("No history loaded yet.");
+    setShareEmail("");
+  }
+
+  async function handleAddCollaborator(event) {
+    event.preventDefault();
+
+    if (!selectedDocument || !isDocumentOwner(selectedDocument)) {
+      return;
+    }
+
+    if (!shareEmail.trim()) {
+      setStatus("Enter a collaborator email to share this document.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const data = await addDocumentCollaborator(
+        selectedDocument.id,
+        shareEmail.trim(),
+        sharePermission
+      );
+
+      setCollaborators(data.collaborators || []);
+      setShareEmail("");
+      setStatus(`Shared with ${data.collaborator?.email || "collaborator"}.`);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleRemoveCollaborator(userId) {
+    if (!selectedDocument || !isDocumentOwner(selectedDocument)) {
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const data = await removeDocumentCollaborator(
+        selectedDocument.id,
+        userId
+      );
+
+      setCollaborators(data.collaborators || []);
+      setStatus("Collaborator removed.");
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   function enqueueCollaborationOperations(operations, options = {}) {
+    if (!canWriteDocumentRef.current) {
+      return;
+    }
+
     const validOperations = operations.filter(
       (operation) =>
         operation &&
@@ -456,7 +605,11 @@ function App() {
       to: selection.to
     });
 
-    if (viewUpdate.docChanged && !suppressChangeRef.current) {
+    if (
+      viewUpdate.docChanged &&
+      !suppressChangeRef.current &&
+      canWriteDocumentRef.current
+    ) {
       const operations = getOperationsFromCodeMirrorChanges(viewUpdate.changes);
       enqueueCollaborationOperations(operations, { silent: true });
     }
@@ -480,6 +633,11 @@ function App() {
   }
 
   function applyProgrammaticEditorUpdate(nextValue) {
+    if (!canWriteDocumentRef.current) {
+      setStatus("This document is read-only.");
+      return;
+    }
+
     const previousValue = editorValueRef.current;
 
     suppressChangeRef.current = true;
@@ -741,6 +899,67 @@ function App() {
           </button>
         </form>
 
+        {selectedDocument && isDocumentOwner(selectedDocument) && (
+          <div className="panel-card flex flex-col gap-2.5">
+            <strong className="text-slate-50">Share document</strong>
+            <form
+              onSubmit={handleAddCollaborator}
+              className="flex flex-col gap-2"
+            >
+              <input
+                className="input-field text-sm"
+                value={shareEmail}
+                onChange={(event) => setShareEmail(event.target.value)}
+                placeholder="Collaborator email"
+              />
+              <select
+                className="input-field text-sm"
+                value={sharePermission}
+                onChange={(event) => setSharePermission(event.target.value)}
+              >
+                <option value="write">Write</option>
+                <option value="read">Read</option>
+              </select>
+              <button className="btn-secondary-sm" disabled={isLoading}>
+                Add collaborator
+              </button>
+            </form>
+            {collaborators.length === 0 ? (
+              <p className="text-sm text-slate-400">No collaborators yet.</p>
+            ) : (
+              collaborators.map((collaborator) => (
+                <div
+                  key={collaborator.user_id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm"
+                >
+                  <span>
+                    {collaborator.email}{" "}
+                    <span className="text-slate-400">
+                      ({collaborator.permission_level})
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded border border-red-900 bg-red-950 px-2 py-1 text-xs text-red-200 hover:bg-red-900 disabled:opacity-50"
+                    onClick={() =>
+                      handleRemoveCollaborator(collaborator.user_id)
+                    }
+                    disabled={isLoading}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {selectedDocument && !isDocumentOwner(selectedDocument) && (
+          <p className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300">
+            Shared with you — <strong>{formatAccessLabel(selectedDocument)}</strong>
+          </p>
+        )}
+
         <div className="flex flex-col gap-3 overflow-y-auto">
           {documents.length === 0 ? (
             <p className="mt-2 leading-normal text-slate-400">
@@ -758,28 +977,28 @@ function App() {
               >
                 <button
                   className="flex cursor-pointer flex-col gap-1 border-0 bg-transparent text-left text-slate-50"
-                  onClick={() => {
-                    setSelectedDocument(document);
-                    setAiOutput("");
-                    setRagReferences([]);
-                    setLastIndexedCodebaseId(null);
-                    setSnapshots([]);
-                    setHistoryStatus("No history loaded yet.");
-                  }}
+                  onClick={() => selectDocument(document)}
                 >
                   <strong>{document.title}</strong>
                   <span className="text-sm text-slate-400">
+                    {formatAccessLabel(document)} ·{" "}
                     {new Date(document.updated_at).toLocaleString()}
                   </span>
                 </button>
 
-                <button
-                  className="cursor-pointer rounded-lg border border-red-900 bg-red-950 px-2.5 py-2 text-red-200 transition hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => handleDeleteDocument(document.id)}
-                  disabled={isLoading}
-                >
-                  Delete
-                </button>
+                {isDocumentOwner(document) ? (
+                  <button
+                    className="cursor-pointer rounded-lg border border-red-900 bg-red-950 px-2.5 py-2 text-red-200 transition hover:bg-red-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => handleDeleteDocument(document.id)}
+                    disabled={isLoading}
+                  >
+                    Delete
+                  </button>
+                ) : (
+                  <span className="rounded-lg border border-slate-700 px-2.5 py-2 text-xs text-slate-400">
+                    Shared
+                  </span>
+                )}
               </div>
             ))
           )}
@@ -799,6 +1018,12 @@ function App() {
             <h2 className="text-3xl font-bold">
               {selectedDocument ? selectedDocument.title : "Select a document"}
             </h2>
+            {selectedDocument && (
+              <p className="mt-1 text-sm text-slate-400">
+                {formatAccessLabel(selectedDocument)}
+                {!canWriteDocument ? " · read-only editor" : ""}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2.5">
@@ -830,7 +1055,7 @@ function App() {
             <button
               className="btn-ai"
               onClick={handleAiComplete}
-              disabled={!selectedDocument || isLoading}
+              disabled={!selectedDocument || isLoading || !canWriteDocument}
             >
               AI Complete
             </button>
@@ -865,6 +1090,7 @@ function App() {
                   height="560px"
                   extensions={editorExtensions}
                   theme="dark"
+                  editable={canWriteDocument}
                   onChange={handleEditorChange}
                   onUpdate={handleEditorUpdate}
                   basicSetup={{
@@ -980,7 +1206,7 @@ function App() {
                     <button
                       className="w-fit rounded-lg border-0 bg-emerald-600 px-2.5 py-2 font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => handleRestoreSnapshot(snapshot.id)}
-                      disabled={isLoading}
+                      disabled={isLoading || !canWriteDocument}
                     >
                       Restore
                     </button>

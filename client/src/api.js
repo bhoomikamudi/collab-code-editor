@@ -113,6 +113,26 @@ async function deleteDocument(documentId) {
   });
 }
 
+async function listDocumentCollaborators(documentId) {
+  return apiRequest(`/documents/${documentId}/collaborators`);
+}
+
+async function addDocumentCollaborator(documentId, email, permissionLevel) {
+  return apiRequest(`/documents/${documentId}/collaborators`, {
+    method: "POST",
+    data: {
+      email,
+      permission_level: permissionLevel
+    }
+  });
+}
+
+async function removeDocumentCollaborator(documentId, userId) {
+  return apiRequest(`/documents/${documentId}/collaborators/${userId}`, {
+    method: "DELETE"
+  });
+}
+
 async function listDocumentHistory(documentId) {
   return apiRequest(`/documents/${documentId}/history`);
 }
@@ -194,6 +214,9 @@ export {
   listDocuments,
   createDocument,
   deleteDocument,
+  listDocumentCollaborators,
+  addDocumentCollaborator,
+  removeDocumentCollaborator,
   listDocumentHistory,
   restoreDocumentSnapshot,
   indexCodebase,

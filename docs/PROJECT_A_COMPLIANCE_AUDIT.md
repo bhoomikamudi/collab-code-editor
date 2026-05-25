@@ -54,8 +54,66 @@
 | Colored remote cursors inside editor | **Complete** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations (caret widget + selection highlight); `App.jsx` filters local user; footer presence panel retained | Manual two-tab check recommended when Docker/browser testing is available |
 | Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert; `App.jsx` operation queue per `OPERATION_ACK` | Backend still uses insert/delete only; simultaneous heavy edits need manual two-tab validation |
 | Redis pub/sub echo-loop prevention | **Complete** | `pubsub.js` — `serverInstanceId`, skip if `event.serverInstanceId === serverInstanceId` | None |
-| Final Docker Compose run proven after latest changes | **Needs Manual Proof** | Docs describe `docker compose up`; no CI log or committed test report post–Tailwind/nginx | Re-run full stack and record results in README or CI |
+| Final Docker Compose run proven after latest changes | **Blocked (2026-05-25)** | `docker compose up -d --build` failed: Docker Desktop Linux engine pipe not available on validation host | Start Docker Desktop, re-run checklist in [Full Docker E2E validation](#full-docker-e2e-validation) below |
 | `DEPLOYMENT.md` / env templates without secrets | **Complete** | `DEPLOYMENT.md`, `deploy/env.prod.example`, `server/.env.example`, `ai-service/.env.example` | None |
+
+---
+
+## Full Docker E2E validation
+
+**Branch:** `phase3-full-docker-e2e-validation`  
+**Date:** 2026-05-25  
+**Overall status:** **Not run — Docker daemon unavailable**
+
+### Environment
+
+`docker compose up -d --build` failed immediately:
+
+```text
+failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine
+```
+
+**Action required:** Start Docker Desktop (or a running Docker engine), then re-run the checklist below. Do not treat this audit as proof of runtime behavior until Compose succeeds.
+
+### Static validation (no Docker) — passed
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Node server syntax | `cd server && npm run check` | Pass |
+| Frontend production build | `cd client && npm run build` | Pass |
+| AI service syntax | `cd ai-service && python -m py_compile config.py main.py rag_store.py` | Pass |
+
+Mock AI mode assumed for any future browser AI steps (`AI_MOCK_MODE=true` / no real OpenAI key). Real OpenAI path was **not** validated.
+
+### Full-stack checklist — not executed (blocked)
+
+| # | Area | Validated? |
+|---|------|------------|
+| 1 | `docker ps` — all services healthy | No |
+| 2 | `GET http://localhost:5000/health` | No |
+| 3 | `GET http://localhost:8000/health` | No |
+| 4 | Frontend `http://localhost:3000` | No |
+| 5 | Auth — register/login User A & B, `/auth/me` | No |
+| 6 | Documents — create, list, open, owner delete | No |
+| 7 | Collaborators — share write, User B edit, User A sees edit; read-only block | No |
+| 8 | Two-tab OT — insert, delete, replace, revision sync | No |
+| 9 | Remote cursor/selection indicators (two users) | No |
+| 10 | AI/RAG mock — Index, Complete, Explain, Chat, RAG refs | No |
+| 11 | Version history — load; restore if snapshot exists | No |
+| 12 | `docker compose logs server` / `ai-service` — no crashes | No |
+| 13 | `docker compose down` clean teardown | No |
+
+### Re-run procedure (when Docker is available)
+
+```bash
+docker compose up -d --build
+docker compose run --rm server npm run init-db   # first time only
+# health: localhost:5000/health, localhost:8000/health
+# browser: localhost:3000 — follow docs/DEMO_SCRIPT.md
+docker compose down
+```
+
+Record pass/fail per row above and update this section (or open a follow-up commit).
 
 ---
 
@@ -77,8 +135,8 @@
 |------|------------|
 | Server OT | **Implemented** — `ot` package, transform against Redis history (`otEngine.js`, `websocketServer.js`). |
 | Client OT | **Improved** — CodeMirror 6 `ChangeSet` → insert/delete (+ replace as delete+insert queue); no client-side ot.js transform. |
-| Replace | **Not supported** for sync. |
-| Remote cursors | **Data exists**, **visualization missing** in editor. |
+| Replace | **Supported** — client maps replace to delete+insert; server accepts insert/delete only. |
+| Remote cursors | **Implemented** — `remoteCursorExtension.js` decorations; not browser-verified in this run. |
 | Conflict handling | **Prototype-level** — suitable for portfolio demo with caveats, not spec-grade concurrent editing. |
 
 ### Deployment
@@ -113,7 +171,7 @@
 2. **WebSocket script** — `npm run test-ws` in Compose after clean build.
 3. **Multi-instance Redis pub/sub** — two `server` replicas behind nginx/Redis (prove cross-instance fan-out).
 4. **Real OpenAI path** — one run with `AI_MOCK_MODE=false` and valid key (completion + RAG); document results in README.
-5. **Full regression** — `docker compose up --build` and `docker compose -f docker-compose.prod.yml up --build` after changes; document pass/fail.
+5. **Full regression** — complete [Full Docker E2E validation](#full-docker-e2e-validation) checklist with Docker running; optional `docker-compose.prod.yml` smoke test.
 
 ### Deployment tasks
 
@@ -147,7 +205,7 @@
 
 ## Recruiter-safe one-line summary
 
-**“Full-stack real-time collab editor with JWT, Redis OT history, WebSocket sync, snapshots, FastAPI + LangChain/ChromaDB RAG (mock or real OpenAI modes), Docker/CI/nginx config — strong local prototype; remaining work is in-editor presence polish, public deployment, and demo media.”**
+**“Full-stack real-time collab editor with JWT, Redis OT history, WebSocket sync, snapshots, collaborators, in-editor remote cursors, FastAPI + LangChain/ChromaDB RAG (mock or real OpenAI modes), Docker/CI/nginx config — strong local prototype; full Compose E2E proof and public demo media still pending.”**
 
 ---
 

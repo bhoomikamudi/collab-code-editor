@@ -124,10 +124,13 @@ export function expandOperationsForServer(operations) {
 
 /**
  * Preferred path: read CodeMirror 6 ChangeSet regions in document order.
- * Each region becomes insert, delete, or delete+insert (replace).
+ * Each region becomes delete+insert (replace), insert, or delete. Positions are
+ * adjusted for sequential WebSocket sends when one transaction has multiple
+ * regions (later regions shift after earlier delete/insert pairs apply).
  */
 export function getOperationsFromCodeMirrorChanges(changes) {
   const operations = [];
+  let positionOffset = 0;
 
   changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
     const deletedLength = toA - fromA;
@@ -137,33 +140,42 @@ export function getOperationsFromCodeMirrorChanges(changes) {
       return;
     }
 
+    const position = fromA + positionOffset;
+
     if (deletedLength === 0) {
       operations.push({
         type: "insert",
-        position: fromA,
+        position,
         text
       });
+      positionOffset += text.length;
       return;
     }
 
     if (text.length === 0) {
       operations.push({
         type: "delete",
-        position: fromA,
+        position,
         length: deletedLength
       });
+      positionOffset -= deletedLength;
       return;
     }
 
     operations.push({
-      type: "replace",
-      position: fromA,
-      length: deletedLength,
+      type: "delete",
+      position,
+      length: deletedLength
+    });
+    operations.push({
+      type: "insert",
+      position,
       text
     });
+    positionOffset += text.length - deletedLength;
   });
 
-  return expandOperationsForServer(operations);
+  return operations;
 }
 
 export function getOperationsFromTextDiff(previousValue, nextValue) {

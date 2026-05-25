@@ -98,13 +98,26 @@ Open `http://localhost:3000` in Chrome or Edge.
 
 ---
 
+## 2:45 — Two-tab insert / delete / replace (collaboration)
+
+1. Open the same document in **two browser tabs** (same account, or two accounts if you have collaborators).
+2. Confirm both show **Connected** and the revision counter increases on edits.
+3. **Tab A:** type new characters → **Tab B** should show the insert within a second.
+4. **Tab A:** select a word and press **Delete** or **Backspace** → **Tab B** should remove the same range.
+5. **Tab A:** select a line or word and type replacement text (overwrite selection) → **Tab B** should show the replaced text (client sends delete then insert).
+6. **Tab B:** make a complementary edit at a different position → both tabs should stay consistent.
+
+**Say:** "Replace-over-selection is synced as delete-then-insert over WebSocket OT; revisions advance on each ack."
+
+---
+
 ## 3:20 — Engineering wrap-up (optional, if time)
 
 Quickly mention:
 
 - GitHub Actions CI (frontend build + backend/AI syntax checks)
 - [DEPLOYMENT.md](../DEPLOYMENT.md) for nginx production-style Compose
-- Honest scope: prototype-level OT (insert/delete), not full Google Docs-scale CRDT
+- Honest scope: prototype-level OT (insert/delete/replace via delete+insert queue), not full Google Docs-scale CRDT
 
 ---
 
@@ -116,3 +129,4 @@ Quickly mention:
 | AI errors | Confirm `USE_MOCK_AI=true` in `ai-service/.env` |
 | No snapshots | Need 50+ operations between snapshots; use typing or AI Complete |
 | Second tab not syncing | Ensure both tabs joined the same document |
+| Replace not appearing in other tab | Select text, type over it (not only append); check revision increments in both tabs |

@@ -30,11 +30,11 @@
 | PostgreSQL for snapshots | **Complete** | `schema.sql` — `document_snapshots`; `server/src/snapshotStore.js`; restore in `documentRoutes.js` | None |
 | JWT authentication | **Complete** | `server/src/auth.js`, `authRoutes.js`; Bearer token on API; `JOIN_DOCUMENT` requires JWT in `websocketServer.js` | None |
 | Python FastAPI AI microservice | **Complete** | `ai-service/main.py` — FastAPI app, `/health`, `/index`, `/complete`, `/explain`, `/chat` | None |
-| LangChain RAG pipeline | **Complete** | `rag_store.py` — `langchain_openai.OpenAIEmbeddings`; `main.py` — `langchain_openai.ChatOpenAI` + ChromaDB store/query | Real mode uses LangChain for embeddings and chat; mock mode uses deterministic local embeddings |
-| ChromaDB vector storage | **Complete** | `ai-service/rag_store.py` — `chromadb.PersistentClient`, `collection.add`, `collection.query` | Separate collections for mock vs OpenAI embedding dimensions |
-| OpenAI `gpt-4o-mini` for completions / explanations | **Complete** | `main.py` — `ChatOpenAI(model=OPENAI_MODEL)` when `AI_MOCK_MODE=false`; default mock without key | Default local demo remains mock unless `OPENAI_API_KEY` is set and `AI_MOCK_MODE=false` |
-| OpenAI `text-embedding-3-small` for embeddings | **Complete** | `rag_store.py` — `OpenAIEmbeddings(model=EMBEDDING_MODEL)` when `AI_MOCK_MODE=false` | Mock mode uses `mock_embedding()`; real mode uses OpenAI embeddings |
-| `tiktoken` for token counting / chunking | **Complete** | `rag_store.py` — `tiktoken.get_encoding`, `count_tokens`, token-budget chunk packing in `split_code_into_chunks` | Used in both mock and real modes for chunk sizing |
+| LangChain RAG pipeline | **Implemented, Needs Manual Proof** | `rag_store.py` — `langchain_openai.OpenAIEmbeddings`; `main.py` — `langchain_openai.ChatOpenAI` + ChromaDB store/query; mock mode validated in Docker E2E | Real LangChain + OpenAI API path **not live-validated** (no `OPENAI_API_KEY` in shell or local `ai-service/.env` during this run) |
+| ChromaDB vector storage | **Complete (mock)** / **Needs Manual Proof (real embeddings)** | `rag_store.py` — `chromadb.PersistentClient`, `collection.add`, `collection.query`; mock collection validated in Docker E2E | OpenAI embedding collection (`codebase_chunks_openai`) not indexed/queried with a real key in this run |
+| OpenAI `gpt-4o-mini` for completions / explanations | **Implemented, Needs Manual Proof** | `main.py` — `ChatOpenAI(model=OPENAI_MODEL)` when `AI_MOCK_MODE=false`; default `gpt-4o-mini` in `config.py` | No live `/complete`, `/explain`, or `/chat` calls with a real key |
+| OpenAI `text-embedding-3-small` for embeddings | **Implemented, Needs Manual Proof** | `rag_store.py` — `OpenAIEmbeddings(model=EMBEDDING_MODEL)` when `AI_MOCK_MODE=false`; default `text-embedding-3-small` | No live embedding/index/query run with a real key |
+| `tiktoken` for token counting / chunking | **Complete** | `rag_store.py` — `tiktoken.get_encoding`, `count_tokens`, token-budget chunk packing; **`python rag_store.py` self-test passed (2026-05-25)** | Chunk sizing verified locally; independent of OpenAI API |
 | Code chunking function/class-aware | **Complete** | `rag_store.py` — language-specific regex boundaries (JS/TS, Python, Java, Go), tiktoken budgets, metadata `chunk_type`/`symbol_name`; `python rag_store.py` self-test | Regex best-effort, not full AST parsing; oversized symbols split as `block` parts |
 | Docker + Docker Compose for all services | **Complete** | `docker-compose.yml` — postgres, redis, server, ai-service, client | Local dev uses bind mounts + dev commands |
 | Nginx reverse proxy for deployment | **Partial** | `deploy/nginx/default.conf`, `deploy/nginx/Dockerfile`, `docker-compose.prod.yml` nginx service | Config exists; **not the same as a proven public deployment** |
@@ -47,9 +47,9 @@
 | Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `collabOperations.js` + queued WebSocket ops; **manual validation** — insert, backspace delete, **full-document replace** sync to PostgreSQL; revision counter increments | Simultaneous two-tab typing not proven; partial-line replace not exercised in browser automation (CodeMirror selection not set by MCP keyboard) |
 | Document snapshots every 50 operations | **Complete** | `server/src/websocketServer.js` — `SNAPSHOT_INTERVAL = 50`; `maybeCreateSnapshot` on operation ack path | None |
 | Version history + restore workflow | **Complete** | `GET /documents/:id/history`, `POST .../restore/:snapshotId`; UI: Load History, Restore in `App.jsx` | None |
-| AI Complete | **Complete** | `POST /ai/complete` proxy; `handleAiComplete` in `App.jsx` | Mock mode default |
-| Explain Selection | **Complete** | `POST /ai/explain`; `handleExplainSelection` | Mock mode default |
-| Codebase Chat | **Complete** | `POST /ai/chat`; `handleChatSubmit` | Mock mode default |
+| AI Complete | **Complete (mock)** | `POST /ai/complete` proxy; `handleAiComplete` in `App.jsx`; mock validated in Docker E2E | Real OpenAI completions not live-validated |
+| Explain Selection | **Complete (mock)** | `POST /ai/explain`; `handleExplainSelection`; mock validated in Docker E2E | Real OpenAI explanations not live-validated |
+| Codebase Chat | **Complete (mock)** | `POST /ai/chat`; `handleChatSubmit`; mock validated in Docker E2E | Real OpenAI chat not live-validated |
 | RAG references in UI | **Complete** | `formatRagReferences` in `App.jsx`; `rag_chunks` from API; Index for RAG button | Retrieval uses mock embeddings unless extended |
 | Colored remote cursors inside editor | **Partial** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations; `CURSOR` / `CURSOR_UPDATE` in `websocketServer.js`; **manual validation** — User B WebSocket client sent `CURSOR` with selection range while User A had doc open | Colored caret/selection highlight **not visually confirmed** in browser screenshot during this run (B session disconnected quickly; presence footer showed local user only) |
 | Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert with sequential position offsets; `App.jsx` — uncontrolled CodeMirror + `ExternalChange` external sync (fixes controlled `value` latch revert); **browser verified (2026-05-25)** — full-document replace persists correctly | Keyboard Ctrl+A in browser automation tools may not set CodeMirror selection; human editing verified via replace transaction |
@@ -232,11 +232,11 @@ Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (regi
 
 | Spec item | What the repo actually does |
 |-----------|----------------------------|
-| LangChain | **Wired in real mode** — `OpenAIEmbeddings` + `ChatOpenAI` in `ai-service/`. |
-| ChromaDB | **Actually used** for persist, index, and query (mock and OpenAI collections). |
-| `text-embedding-3-small` | **Wired when `AI_MOCK_MODE=false`** via `OpenAIEmbeddings`. |
-| `tiktoken` | **Wired** — token-budget chunking in `split_code_into_chunks`. |
-| `gpt-4o-mini` | **Wired when `AI_MOCK_MODE=false`** via `ChatOpenAI`. |
+| LangChain | **Implemented** — `OpenAIEmbeddings` + `ChatOpenAI` wired when `AI_MOCK_MODE=false`. **Live OpenAI calls not validated** in this run. |
+| ChromaDB | **Mock runtime validated** in Docker E2E. **OpenAI embedding collection not live-indexed** without a key. |
+| `text-embedding-3-small` | **Configured** via `EMBEDDING_MODEL` default. **Not live-verified**. |
+| `tiktoken` | **Verified locally** — `python rag_store.py` chunking self-test. |
+| `gpt-4o-mini` | **Configured** via `OPENAI_MODEL` default. **Not live-verified**. |
 
 ### Collaboration / OT
 
@@ -268,6 +268,113 @@ Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (regi
 
 ---
 
+## Real OpenAI validation
+
+**Branch:** `phase3-real-openai-validation`  
+**Date:** 2026-05-25  
+**Overall status:** **Implemented, Needs Manual Proof** — configuration and static checks pass; **no live OpenAI API calls** (no key in shell environment or local `ai-service/.env`)
+
+### Configuration review (code + env templates)
+
+| Item | Result | Evidence |
+|------|--------|----------|
+| `AI_MOCK_MODE=false` enables real mode | **Pass (static)** | `config.py` — `resolve_mock_mode()`; `main.py` `/health` returns `ai_mode: openai` |
+| `OPENAI_API_KEY` required in real mode | **Pass (static)** | `config.py` — `require_openai_api_key()` raises when key missing and mock disabled |
+| `OPENAI_MODEL` default | **Pass (static)** | `config.py` — default `gpt-4o-mini`; overridable via env |
+| `EMBEDDING_MODEL` default | **Pass (static)** | `config.py` — default `text-embedding-3-small`; overridable via env |
+| LangChain chat in real mode | **Pass (static)** | `main.py` — `ChatOpenAI` via `langchain_openai` |
+| LangChain embeddings in real mode | **Pass (static)** | `rag_store.py` — `OpenAIEmbeddings` via `langchain_openai` |
+| ChromaDB persistence | **Pass (mock runtime)** | Prior Docker E2E; separate `codebase_chunks_mock` vs `codebase_chunks_openai` collections |
+| `tiktoken` chunking | **Pass (local)** | `python rag_store.py` self-test — function/class/fallback chunks with token counts |
+| Mock mode preserved | **Pass (static)** | Default `AI_MOCK_MODE=true` in `.env.example`; mock branches unchanged in `main.py` |
+| Secrets not committed | **Pass** | `ai-service/.env` gitignored; `.env.example` uses empty key placeholder |
+
+### Live API validation
+
+| Step | Result | Notes |
+|------|--------|-------|
+| `OPENAI_API_KEY` available locally | **Not available** | Shell env empty; `ai-service/.env` has no non-placeholder key |
+| `GET /health` with `ai_mode: openai` | **Not run** | Requires key + `AI_MOCK_MODE=false` |
+| `POST /index` with OpenAI embeddings | **Not run** | |
+| `POST /complete` | **Not run** | |
+| `POST /explain` | **Not run** | |
+| `POST /chat` with RAG refs | **Not run** | |
+
+### Static validation — pass
+
+```bash
+cd ai-service && python -m py_compile config.py main.py rag_store.py && python rag_store.py
+cd ../server && npm run check
+cd ../client && npm run build
+```
+
+### Local commands to validate real mode (when you have a key)
+
+Do **not** commit `ai-service/.env` or print the key. Set variables in your shell or edit local `.env` only:
+
+```powershell
+# Option A: local ai-service process
+cd ai-service
+Copy-Item .env.example .env   # first time only; edit locally
+# In ai-service/.env set: AI_MOCK_MODE=false and OPENAI_API_KEY=sk-... (your key)
+
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Option B: Docker (uses ai-service/.env via docker-compose.yml env_file)
+docker compose up -d --build ai-service
+```
+
+Health (expect `ai_mode: "openai"`, `chat_model: "gpt-4o-mini"`, `embedding_model: "text-embedding-3-small"`):
+
+```powershell
+Invoke-RestMethod http://localhost:8000/health
+```
+
+Index, complete, explain, chat (PowerShell; replace `CODEBASE_ID` as needed):
+
+```powershell
+$codebaseId = "real-openai-validation-test"
+$indexBody = @{
+  codebase_id = $codebaseId
+  files = @(@{
+    filename = "sample.js"
+    language = "javascript"
+    content = "function add(a, b) { return a + b; }`nfunction multiply(x, y) { return x * y; }"
+  })
+} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/index -ContentType "application/json" -Body $indexBody
+
+$completeBody = @{
+  code_context = "function add(a, b) { return a + b; }`n"
+  cursor_position = 35
+  language = "javascript"
+  codebase_id = $codebaseId
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/complete -ContentType "application/json" -Body $completeBody
+
+$explainBody = @{
+  selected_code = "function add(a, b) { return a + b; }"
+  language = "javascript"
+  codebase_id = $codebaseId
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/explain -ContentType "application/json" -Body $explainBody
+
+$chatBody = @{
+  question = "Where is the add function defined?"
+  code_context = "function add(a, b) { return a + b; }"
+  language = "javascript"
+  codebase_id = $codebaseId
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/chat -ContentType "application/json" -Body $chatBody
+```
+
+**Pass criteria:** responses use `model: gpt-4o-mini` (not `mock-ai`), text is not mock template wording, and `rag_chunks` is non-empty after indexing.
+
+See also [DEPLOYMENT.md](../DEPLOYMENT.md#real-openai-mode-validation-local).
+
+---
+
 ## Remaining Tasks to Reach Exact 100% Project A Compliance
 
 ### Code tasks
@@ -279,7 +386,7 @@ Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (regi
 1. **Two-browser manual test** — same document, **simultaneous** typing (incognito + normal), capture evidence (GIF).
 2. **WebSocket script** — `npm run test-ws` in Compose after clean build.
 3. **Multi-instance Redis pub/sub** — two `server` replicas behind nginx/Redis (prove cross-instance fan-out).
-4. **Real OpenAI path** — one run with `AI_MOCK_MODE=false` and valid key (completion + RAG); document results in README.
+4. **Real OpenAI path** — run [Real OpenAI validation](#real-openai-validation) commands with `AI_MOCK_MODE=false` and a valid key; update this audit when live calls succeed.
 5. **Full regression** — complete [Full Docker E2E validation](#full-docker-e2e-validation) checklist with Docker running; optional `docker-compose.prod.yml` smoke test.
 
 ### Deployment tasks

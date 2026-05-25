@@ -235,6 +235,8 @@ AI_MOCK_MODE=true
 
 **AI modes:** `AI_MOCK_MODE=true` (default without a key) uses deterministic mock LLM + embedding responses. Set `AI_MOCK_MODE=false` and provide `OPENAI_API_KEY` for real `gpt-4o-mini` chat and `text-embedding-3-small` embeddings via LangChain + ChromaDB. Legacy `USE_MOCK_AI` is still supported as an alias.
 
+**Real OpenAI validation:** mock mode was validated in Docker E2E. To validate the live OpenAI path, see [DEPLOYMENT.md](DEPLOYMENT.md#real-openai-mode-validation-local) and [docs/PROJECT_A_COMPLIANCE_AUDIT.md](docs/PROJECT_A_COMPLIANCE_AUDIT.md#real-openai-validation). Do not commit API keys.
+
 ### 3. Start services
 
 ```bash

@@ -86,13 +86,71 @@ Create a document.
 
 List documents owned by or shared with the current user.
 
+Each document includes:
+
+| Field | Description |
+|-------|-------------|
+| `owner_id` | Document owner UUID |
+| `access_role` | `owner` or `collaborator` |
+| `permission_level` | `write` for owners; `read` or `write` for collaborators |
+
 ### `GET /documents/:id`
 
-Fetch one document by ID.
+Fetch one document by ID (owner or collaborator).
+
+Returns the same `access_role` and `permission_level` fields as the list endpoint.
 
 ### `DELETE /documents/:id`
 
-Delete a document (owner only).
+Delete a document (**owner only**). Collaborators receive `403`.
+
+### `GET /documents/:id/collaborators`
+
+List collaborators for a document. Requires document access (owner or collaborator).
+
+**Response**
+
+```json
+{
+  "collaborators": [
+    {
+      "user_id": "uuid",
+      "email": "collaborator@example.com",
+      "permission_level": "write",
+      "created_at": "2026-05-24T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+### `POST /documents/:id/collaborators`
+
+Add or update a collaborator (**owner only**).
+
+**Body**
+
+```json
+{
+  "email": "collaborator@example.com",
+  "permission_level": "write"
+}
+```
+
+`permission_level` must be `read` or `write`. The email must belong to a registered user.
+
+### `DELETE /documents/:id/collaborators/:userId`
+
+Remove a collaborator (**owner only**).
+
+### Access rules
+
+| Role | View / join WebSocket | Send `OPERATION` | Delete document | Manage collaborators |
+|------|----------------------|------------------|-----------------|----------------------|
+| Owner | Yes | Yes | Yes | Yes |
+| Collaborator `write` | Yes | Yes | No | No |
+| Collaborator `read` | Yes (read-only) | No | No | No |
+
+`DOCUMENT_JOINED` includes `access_role`, `permission_level`, and `can_write` for the client UI.
 
 ### `GET /documents/:id/history`
 
@@ -100,7 +158,7 @@ List version snapshots for a document.
 
 ### `POST /documents/:id/restore/:snapshotId`
 
-Restore document content from a snapshot and return the updated document.
+Restore document content from a snapshot and return the updated document (**owner or write collaborator**).
 
 ---
 

@@ -4,7 +4,7 @@
 **Audit date:** 2026-05-24  
 **Method:** Static review of source, config, and docs. No claim is marked **Complete** unless implementation evidence exists in the repo.
 
-**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **collaborator workflows**, **live deployment proof**, and **portfolio media** (GIF, video, public URL).
+**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **live deployment proof** and **portfolio media** (GIF, video, public URL).
 
 ---
 
@@ -26,7 +26,7 @@
 | PostgreSQL for users | **Complete** | `server/src/schema.sql` — `users` table; `server/src/authRoutes.js` — register/login | None |
 | PostgreSQL for documents | **Complete** | `schema.sql` — `documents`; `server/src/documentRoutes.js` — CRUD | None |
 | PostgreSQL for sessions / user session data | **Partial** | JWT stored in `localStorage` (`client/src/api.js` — `authToken`); `GET /auth/me` | No dedicated `sessions` table or server-side session store. Spec may mean “user auth state” — met via JWT, not DB sessions |
-| PostgreSQL for collaborators | **Partial** | `schema.sql` — `document_collaborators`; access checks JOIN collaborators in `documentRoutes.js`, `websocketServer.js` | **No API or UI to add collaborators** — only schema + query support; owners cannot invite others from the app |
+| PostgreSQL for collaborators | **Complete** | `document_collaborators` + `documentAccess.js`; REST share routes; WebSocket `can_write` enforcement; Share panel in `App.jsx` | Manual two-user Docker validation recommended |
 | PostgreSQL for snapshots | **Complete** | `schema.sql` — `document_snapshots`; `server/src/snapshotStore.js`; restore in `documentRoutes.js` | None |
 | JWT authentication | **Complete** | `server/src/auth.js`, `authRoutes.js`; Bearer token on API; `JOIN_DOCUMENT` requires JWT in `websocketServer.js` | None |
 | Python FastAPI AI microservice | **Complete** | `ai-service/main.py` — FastAPI app, `/health`, `/index`, `/complete`, `/explain`, `/chat` | None |
@@ -105,8 +105,7 @@
 
 ### Code tasks
 
-1. **Collaborator invite flow** — API + UI to insert `document_collaborators` (currently schema-only).
-4. **Optional:** PostgreSQL `sessions` table if spec requires server-side sessions beyond JWT.
+1. **Optional:** PostgreSQL `sessions` table if spec requires server-side sessions beyond JWT.
 
 ### Testing / validation tasks
 

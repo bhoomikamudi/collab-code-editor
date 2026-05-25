@@ -40,7 +40,19 @@ Open `http://localhost:3000` in Chrome or Edge.
 
 ---
 
-## 1:00 — Real-time collaboration (40 seconds)
+## 1:00 — Share with a collaborator (35 seconds)
+
+1. As **User A** (document owner), select a document and use **Share document** in the sidebar.
+2. Enter **User B**’s registered email, choose **Write**, click **Add collaborator**.
+3. Log in as **User B** in another browser/incognito window.
+4. Show the shared document in User B’s list with **Collaborator (write)**.
+5. User B opens the document and types; User A sees live updates.
+
+**Say:** "Owners invite registered users with read or write permission; the server enforces access on REST and WebSocket paths."
+
+---
+
+## 1:35 — Real-time collaboration (40 seconds)
 
 1. Copy the browser URL.
 2. Open a **second browser tab** (or incognito window) and log in with another account, **or** use the same account in two tabs for a quick sync demo.

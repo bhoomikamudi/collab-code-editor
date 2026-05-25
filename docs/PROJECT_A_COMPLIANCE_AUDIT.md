@@ -4,7 +4,7 @@
 **Audit date:** 2026-05-24  
 **Method:** Static review of source, config, and docs. No claim is marked **Complete** unless implementation evidence exists in the repo.
 
-**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **editor UX depth** (colored remote cursors), **collaborator workflows**, **live deployment proof**, and **portfolio media** (GIF, video, public URL).
+**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **collaborator workflows**, **live deployment proof**, and **portfolio media** (GIF, video, public URL).
 
 ---
 
@@ -51,7 +51,7 @@
 | Explain Selection | **Complete** | `POST /ai/explain`; `handleExplainSelection` | Mock mode default |
 | Codebase Chat | **Complete** | `POST /ai/chat`; `handleChatSubmit` | Mock mode default |
 | RAG references in UI | **Complete** | `formatRagReferences` in `App.jsx`; `rag_chunks` from API; Index for RAG button | Retrieval uses mock embeddings unless extended |
-| Colored remote cursors inside editor | **Missing** | Presence stored with cursor positions (`presenceStore.js`); UI shows **email list only** in footer (`Presence: user1, user2`) | No CodeMirror remote cursor decorations / peer caret colors |
+| Colored remote cursors inside editor | **Complete** | `client/src/remoteCursorExtension.js` — ViewPlugin decorations (caret widget + selection highlight); `App.jsx` filters local user; footer presence panel retained | Manual two-tab check recommended when Docker/browser testing is available |
 | Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert; `App.jsx` operation queue per `OPERATION_ACK` | Backend still uses insert/delete only; simultaneous heavy edits need manual two-tab validation |
 | Redis pub/sub echo-loop prevention | **Complete** | `pubsub.js` — `serverInstanceId`, skip if `event.serverInstanceId === serverInstanceId` | None |
 | Final Docker Compose run proven after latest changes | **Needs Manual Proof** | Docs describe `docker compose up`; no CI log or committed test report post–Tailwind/nginx | Re-run full stack and record results in README or CI |
@@ -105,8 +105,7 @@
 
 ### Code tasks
 
-1. **Render colored remote cursors / selections** in CodeMirror from `presence` (extensions or decorations).
-3. **Collaborator invite flow** — API + UI to insert `document_collaborators` (currently schema-only).
+1. **Collaborator invite flow** — API + UI to insert `document_collaborators` (currently schema-only).
 4. **Optional:** PostgreSQL `sessions` table if spec requires server-side sessions beyond JWT.
 
 ### Testing / validation tasks
@@ -138,7 +137,7 @@
 
 | Category | Suggested prompts | Notes |
 |----------|-------------------|--------|
-| Editor collaboration | 1 | Remote cursors in editor |
+| Editor collaboration | 0 | — |
 | Collaborators + sessions | 1 | If required by grader |
 | Testing / validation | 2 | Compose proof + two-browser GIF evidence |
 | Deployment | 2–3 | Railway or EC2 + live URL + smoke tests |

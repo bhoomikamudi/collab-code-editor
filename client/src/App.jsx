@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
@@ -24,6 +24,7 @@ import {
   getOperationsFromCodeMirrorChanges,
   getOperationsFromTextDiff
 } from "./collabOperations";
+import { remoteCursorExtension } from "./remoteCursorExtension";
 
 function getWebSocketUrl() {
   if (import.meta.env.VITE_WS_URL) {
@@ -128,6 +129,15 @@ function App() {
   useEffect(() => {
     revisionRef.current = revision;
   }, [revision]);
+
+  // Rebuild remote cursor decorations only when presence changes (not each keystroke).
+  const editorExtensions = useMemo(
+    () => [
+      javascript(),
+      remoteCursorExtension(presence, user?.id)
+    ],
+    [presence, user?.id]
+  );
 
   useEffect(() => {
     if (!selectedDocument || !getAuthToken()) {
@@ -853,7 +863,7 @@ function App() {
                 <CodeMirror
                   value={editorValue}
                   height="560px"
-                  extensions={[javascript()]}
+                  extensions={editorExtensions}
                   theme="dark"
                   onChange={handleEditorChange}
                   onUpdate={handleEditorUpdate}

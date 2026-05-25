@@ -106,7 +106,7 @@ Create `server/.env`:
 ```env
 PORT=5000
 CLIENT_URL=http://localhost:3000
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/collab_code_editor
+DATABASE_URL=postgresql://collab_user:collab_password@postgres:5432/collab_code_editor
 REDIS_URL=redis://redis:6379
 JWT_SECRET=replace_with_a_secure_secret
 JWT_EXPIRES_IN=7d
@@ -116,7 +116,7 @@ AI_SERVICE_URL=http://ai-service:8000
 Create `ai-service/.env`:
 
 ```env
-OPENAI_API_KEY=mock_key_for_local_testing
+OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 EMBEDDING_MODEL=text-embedding-3-small
 CHROMA_DB_DIR=/app/chroma_data
@@ -243,6 +243,8 @@ POST /ai/complete
 ws://localhost:5000
 ```
 
+Production-style routing through nginx is documented in [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 Supported message types include:
 
 ```text
@@ -271,8 +273,8 @@ USER_LEFT
 - Add collaborator invite/share flow
 - Add syntax language selector
 - Add tests for REST routes and WebSocket flows
-- Add production deployment configuration
-- Add RAG-based codebase-aware AI assistance using ChromaDB
+- See [DEPLOYMENT.md](./DEPLOYMENT.md) for production-style Docker + nginx configuration
+- Expand RAG-based codebase-aware AI assistance using ChromaDB
 
 ## Project Status
 

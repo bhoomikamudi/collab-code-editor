@@ -19,6 +19,11 @@ import {
   register,
   restoreDocumentSnapshot
 } from "./api";
+import {
+  applySimpleOperation,
+  getOperationsFromCodeMirrorChanges,
+  getOperationsFromTextDiff
+} from "./collabOperations";
 
 function getWebSocketUrl() {
   if (import.meta.env.VITE_WS_URL) {
@@ -35,86 +40,8 @@ function getWebSocketUrl() {
 
 const WS_URL = getWebSocketUrl();
 
-function applySimpleOperation(content, operation) {
-  if (!operation || typeof operation !== "object") {
-    return content;
-  }
-
-  if (operation.type === "insert") {
-    return (
-      content.slice(0, operation.position) +
-      operation.text +
-      content.slice(operation.position)
-    );
-  }
-
-  if (operation.type === "delete") {
-    return (
-      content.slice(0, operation.position) +
-      content.slice(operation.position + operation.length)
-    );
-  }
-
-  return content;
-}
-
-function getSimpleOperation(previousValue, nextValue) {
-  if (previousValue === nextValue) {
-    return null;
-  }
-
-  let start = 0;
-
-  while (
-    start < previousValue.length &&
-    start < nextValue.length &&
-    previousValue[start] === nextValue[start]
-  ) {
-    start += 1;
-  }
-
-  let previousEnd = previousValue.length - 1;
-  let nextEnd = nextValue.length - 1;
-
-  while (
-    previousEnd >= start &&
-    nextEnd >= start &&
-    previousValue[previousEnd] === nextValue[nextEnd]
-  ) {
-    previousEnd -= 1;
-    nextEnd -= 1;
-  }
-
-  const removedText = previousValue.slice(start, previousEnd + 1);
-  const insertedText = nextValue.slice(start, nextEnd + 1);
-
-  if (removedText.length > 0 && insertedText.length === 0) {
-    return {
-      type: "delete",
-      position: start,
-      length: removedText.length
-    };
-  }
-
-  if (removedText.length === 0 && insertedText.length > 0) {
-    return {
-      type: "insert",
-      position: start,
-      text: insertedText
-    };
-  }
-
-  if (removedText.length > 0 && insertedText.length > 0) {
-    return {
-      type: "replace",
-      position: start,
-      length: removedText.length,
-      text: insertedText
-    };
-  }
-
-  return null;
-}
+// Warn when a single transaction expands to many OT messages (e.g. multi-cursor).
+const MAX_SYNC_OPERATIONS_PER_TRANSACTION = 24;
 
 function getCodebaseId(user, document) {
   if (!user || !document) {
@@ -169,6 +96,9 @@ function App() {
   const wsRef = useRef(null);
   const editorValueRef = useRef("");
   const suppressChangeRef = useRef(false);
+  const revisionRef = useRef(0);
+  const pendingOperationsRef = useRef([]);
+  const sendingOperationRef = useRef(false);
 
   useEffect(() => {
     async function loadSession() {
@@ -194,6 +124,10 @@ function App() {
   useEffect(() => {
     editorValueRef.current = editorValue;
   }, [editorValue]);
+
+  useEffect(() => {
+    revisionRef.current = revision;
+  }, [revision]);
 
   useEffect(() => {
     if (!selectedDocument || !getAuthToken()) {
@@ -223,7 +157,11 @@ function App() {
         suppressChangeRef.current = true;
         setEditorValue(message.document.content || "");
         editorValueRef.current = message.document.content || "";
-        setRevision(message.revision || 0);
+        const joinedRevision = message.revision || 0;
+        setRevision(joinedRevision);
+        revisionRef.current = joinedRevision;
+        pendingOperationsRef.current = [];
+        sendingOperationRef.current = false;
         setPresence(message.presence || []);
         setStatus("Joined real-time document room.");
         setTimeout(() => {
@@ -233,6 +171,10 @@ function App() {
 
       if (message.type === "OPERATION_ACK") {
         setRevision(message.revision);
+        revisionRef.current = message.revision;
+        pendingOperationsRef.current.shift();
+        sendingOperationRef.current = false;
+        flushPendingOperations();
 
         if (message.snapshot_created) {
           setStatus(`Saved at revision ${message.revision}. Snapshot created.`);
@@ -284,6 +226,7 @@ function App() {
       }
 
       if (message.type === "ERROR") {
+        sendingOperationRef.current = false;
         setStatus(message.error);
       }
     };
@@ -432,16 +375,58 @@ function App() {
     }
   }
 
-  function sendOperationToServer(operation) {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "OPERATION",
-          revision,
-          operation
-        })
+  /**
+   * Collaboration sync: CodeMirror ChangeSets → insert/delete OT messages.
+   * Replace edits become delete+insert at the same index (backend has no native
+   * replace type). Operations are queued so each WebSocket message uses the
+   * latest revision after OPERATION_ACK (avoids duplicate ACK application).
+   */
+  function flushPendingOperations() {
+    if (sendingOperationRef.current) {
+      return;
+    }
+
+    const nextOperation = pendingOperationsRef.current[0];
+
+    if (!nextOperation || wsRef.current?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    sendingOperationRef.current = true;
+    wsRef.current.send(
+      JSON.stringify({
+        type: "OPERATION",
+        revision: revisionRef.current,
+        operation: nextOperation
+      })
+    );
+  }
+
+  function enqueueCollaborationOperations(operations, options = {}) {
+    const validOperations = operations.filter(
+      (operation) =>
+        operation &&
+        (operation.type === "insert" || operation.type === "delete")
+    );
+
+    if (validOperations.length === 0) {
+      if (!options.silent) {
+        setStatus("No syncable editor operation detected.");
+      }
+      return;
+    }
+
+    if (
+      validOperations.length > MAX_SYNC_OPERATIONS_PER_TRANSACTION &&
+      !options.silent
+    ) {
+      setStatus(
+        `Syncing ${validOperations.length} operations from a complex edit (queued sequentially).`
       );
     }
+
+    pendingOperationsRef.current.push(...validOperations);
+    flushPendingOperations();
   }
 
   function handleEditorChange(nextValue) {
@@ -449,23 +434,8 @@ function App() {
       return;
     }
 
-    const previousValue = editorValueRef.current;
-    const operation = getSimpleOperation(previousValue, nextValue);
-
     setEditorValue(nextValue);
     editorValueRef.current = nextValue;
-
-    if (!operation) {
-      setStatus("No syncable editor operation detected.");
-      return;
-    }
-
-    if (operation.type === "replace") {
-      setStatus("Replace operations are not synced yet. Use insert/delete edits.");
-      return;
-    }
-
-    sendOperationToServer(operation);
   }
 
   function handleEditorUpdate(viewUpdate) {
@@ -475,6 +445,11 @@ function App() {
       from: selection.from,
       to: selection.to
     });
+
+    if (viewUpdate.docChanged && !suppressChangeRef.current) {
+      const operations = getOperationsFromCodeMirrorChanges(viewUpdate.changes);
+      enqueueCollaborationOperations(operations, { silent: true });
+    }
 
     if (!viewUpdate.selectionSet || !wsRef.current) {
       return;
@@ -492,6 +467,21 @@ function App() {
         })
       );
     }
+  }
+
+  function applyProgrammaticEditorUpdate(nextValue) {
+    const previousValue = editorValueRef.current;
+
+    suppressChangeRef.current = true;
+    setEditorValue(nextValue);
+    editorValueRef.current = nextValue;
+
+    const operations = getOperationsFromTextDiff(previousValue, nextValue);
+    enqueueCollaborationOperations(operations, { silent: true });
+
+    setTimeout(() => {
+      suppressChangeRef.current = false;
+    }, 0);
   }
 
   async function handleIndexCurrentDocument() {
@@ -557,7 +547,7 @@ function App() {
         data.completion +
         editorValue.slice(cursorPosition);
 
-      handleEditorChange(nextValue);
+      applyProgrammaticEditorUpdate(nextValue);
       setAiPanelMode("completion");
       setAiOutput(data.completion);
       setRagReferences(data.rag_chunks || []);

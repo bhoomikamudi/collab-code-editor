@@ -4,7 +4,7 @@
 **Audit date:** 2026-05-24  
 **Method:** Static review of source, config, and docs. No claim is marked **Complete** unless implementation evidence exists in the repo.
 
-**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **editor UX depth** (colored remote cursors, replace sync), **collaborator workflows**, **live deployment proof**, and **portfolio media** (GIF, video, public URL).
+**Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **editor UX depth** (colored remote cursors), **collaborator workflows**, **live deployment proof**, and **portfolio media** (GIF, video, public URL).
 
 ---
 
@@ -13,7 +13,7 @@
 | Requirement from Project A | Status | Evidence from repo | Gap or next action |
 |----------------------------|--------|-------------------|-------------------|
 | Browser-based collaborative code editor | **Complete** | `client/src/App.jsx` — CodeMirror editor, document UI, real-time updates via WebSocket | None for core browser editor |
-| Multiple users editing the same file simultaneously in real time | **Partial** | `server/src/websocketServer.js` — rooms, `REMOTE_OPERATION`, Redis history; `client/src/App.jsx` — `new WebSocket`, applies remote ops | Works for insert/delete in demos; replace edits blocked client-side (`operation.type === "replace"` → not synced). Not Google Docs–level conflict UX. Prove with two browser tabs + screen recording |
+| Multiple users editing the same file simultaneously in real time | **Partial** | `server/src/websocketServer.js` — rooms, `REMOTE_OPERATION`, Redis history; `client/src/App.jsx` — queued insert/delete sync from CodeMirror ChangeSets | Insert, delete, and replace (as delete+insert) sync; not Google Docs–level conflict UX. Prove with two browser tabs + screen recording |
 | React frontend | **Complete** | `client/package.json` — `react`, `react-dom`; `client/src/App.jsx` | None |
 | CodeMirror 6 editor | **Complete** | `client/package.json` — `@codemirror/state`, `@codemirror/view`, `@codemirror/lang-javascript`, `codemirror@^6`; `@uiw/react-codemirror` | None |
 | Native WebSocket client (not Socket.IO client) | **Complete** | `client/src/App.jsx` — `const socket = new WebSocket(WS_URL)`; no `socket.io-client` in `client/package.json` | None |
@@ -44,7 +44,7 @@
 | Screenshots / demo GIF in repo | **Missing** | `docs/SCREENSHOTS.md` lists desired assets; **0 image/gif/video files** in repository (glob `*.{png,gif,mp4}` → none) | Capture and commit assets or link externally |
 | 3-minute demo video | **Needs Manual Proof** | `docs/DEMO_SCRIPT.md` provides script only | No video file or hosted link in repo |
 | Working demo URL (public) | **Missing** | README states no public deployment unless user hosts; no production URL in docs | Deploy to Railway/EC2/etc. and add real URL to README |
-| Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `getSimpleOperation` + insert/delete sync | Demo-able manually; replace not synced; **no automated E2E proof** in repo |
+| Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `collabOperations.js` + queued WebSocket ops | Demo-able manually (insert, delete, replace-over-selection); **no automated E2E proof** in repo |
 | Document snapshots every 50 operations | **Complete** | `server/src/websocketServer.js` — `SNAPSHOT_INTERVAL = 50`; `maybeCreateSnapshot` on operation ack path | None |
 | Version history + restore workflow | **Complete** | `GET /documents/:id/history`, `POST .../restore/:snapshotId`; UI: Load History, Restore in `App.jsx` | None |
 | AI Complete | **Complete** | `POST /ai/complete` proxy; `handleAiComplete` in `App.jsx` | Mock mode default |
@@ -52,7 +52,7 @@
 | Codebase Chat | **Complete** | `POST /ai/chat`; `handleChatSubmit` | Mock mode default |
 | RAG references in UI | **Complete** | `formatRagReferences` in `App.jsx`; `rag_chunks` from API; Index for RAG button | Retrieval uses mock embeddings unless extended |
 | Colored remote cursors inside editor | **Missing** | Presence stored with cursor positions (`presenceStore.js`); UI shows **email list only** in footer (`Presence: user1, user2`) | No CodeMirror remote cursor decorations / peer caret colors |
-| Replace operations supported in collaborative sync | **Missing** | Client explicitly rejects replace: `App.jsx` lines ~463–465 | Typing that produces replace diff does not sync |
+| Replace operations supported in collaborative sync | **Complete** | `client/src/collabOperations.js` — replace → delete+insert; `App.jsx` operation queue per `OPERATION_ACK` | Backend still uses insert/delete only; simultaneous heavy edits need manual two-tab validation |
 | Redis pub/sub echo-loop prevention | **Complete** | `pubsub.js` — `serverInstanceId`, skip if `event.serverInstanceId === serverInstanceId` | None |
 | Final Docker Compose run proven after latest changes | **Needs Manual Proof** | Docs describe `docker compose up`; no CI log or committed test report post–Tailwind/nginx | Re-run full stack and record results in README or CI |
 | `DEPLOYMENT.md` / env templates without secrets | **Complete** | `DEPLOYMENT.md`, `deploy/env.prod.example`, `server/.env.example`, `ai-service/.env.example` | None |
@@ -76,7 +76,7 @@
 | Area | Assessment |
 |------|------------|
 | Server OT | **Implemented** — `ot` package, transform against Redis history (`otEngine.js`, `websocketServer.js`). |
-| Client OT | **Simplified** — diff → insert/delete only; no client-side ot.js. |
+| Client OT | **Improved** — CodeMirror 6 `ChangeSet` → insert/delete (+ replace as delete+insert queue); no client-side ot.js transform. |
 | Replace | **Not supported** for sync. |
 | Remote cursors | **Data exists**, **visualization missing** in editor. |
 | Conflict handling | **Prototype-level** — suitable for portfolio demo with caveats, not spec-grade concurrent editing. |
@@ -105,8 +105,7 @@
 
 ### Code tasks
 
-1. **Support replace operations** in client diff → server sync path (or document as out-of-scope with spec approval).
-2. **Render colored remote cursors / selections** in CodeMirror from `presence` (extensions or decorations).
+1. **Render colored remote cursors / selections** in CodeMirror from `presence` (extensions or decorations).
 3. **Collaborator invite flow** — API + UI to insert `document_collaborators` (currently schema-only).
 4. **Optional:** PostgreSQL `sessions` table if spec requires server-side sessions beyond JWT.
 
@@ -139,7 +138,7 @@
 
 | Category | Suggested prompts | Notes |
 |----------|-------------------|--------|
-| Editor collaboration | 2 | Remote cursors + replace sync |
+| Editor collaboration | 1 | Remote cursors in editor |
 | Collaborators + sessions | 1 | If required by grader |
 | Testing / validation | 2 | Compose proof + two-browser GIF evidence |
 | Deployment | 2–3 | Railway or EC2 + live URL + smoke tests |

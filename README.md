@@ -82,6 +82,8 @@ Built as a portfolio-grade **Project A** system: separate React frontend, Node/E
 
 ## Architecture
 
+![Architecture](docs/assets/architecture.svg)
+
 ### Repository layout
 
 ```text

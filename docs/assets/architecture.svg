@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 920" role="img" aria-labelledby="title desc">
+  <title id="title">Collab Code Editor  System Architecture</title>
+  <desc id="desc">Architecture diagram showing browser client, Node backend, PostgreSQL, Redis, FastAPI AI service, ChromaDB, OpenAI, Docker Compose, nginx, and GitHub Actions CI.</desc>
+
+  <defs>
+    <style>
+      .title { font: 700 22px "Segoe UI", system-ui, sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 13px "Segoe UI", system-ui, sans-serif; fill: #475569; }
+      .layer-label { font: 600 12px "Segoe UI", system-ui, sans-serif; fill: #64748b; letter-spacing: 0.06em; }
+      .box-title { font: 700 14px "Segoe UI", system-ui, sans-serif; fill: #0f172a; }
+      .box-text { font: 500 12px "Segoe UI", system-ui, sans-serif; fill: #334155; }
+      .box-text-sm { font: 500 11px "Segoe UI", system-ui, sans-serif; fill: #475569; }
+      .arrow-label { font: 600 10px "Segoe UI", system-ui, sans-serif; fill: #475569; }
+      .group { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .client { fill: #eff6ff; stroke: #3b82f6; stroke-width: 1.5; }
+      .server { fill: #ecfdf5; stroke: #10b981; stroke-width: 1.5; }
+      .data-pg { fill: #fffbeb; stroke: #f59e0b; stroke-width: 1.5; }
+      .data-redis { fill: #fef2f2; stroke: #ef4444; stroke-width: 1.5; }
+      .ai { fill: #eef2ff; stroke: #6366f1; stroke-width: 1.5; }
+      .infra { fill: #f8fafc; stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 6 4; }
+      .external { fill: #f1f5f9; stroke: #64748b; stroke-width: 1.5; }
+      .arrow { fill: none; stroke: #64748b; stroke-width: 1.6; marker-end: url(#arrowhead); }
+      .arrow-accent { fill: none; stroke: #3b82f6; stroke-width: 1.6; marker-end: url(#arrowhead-blue); }
+      .arrow-ws { fill: none; stroke: #10b981; stroke-width: 1.6; marker-end: url(#arrowhead-green); }
+      .arrow-ai { fill: none; stroke: #6366f1; stroke-width: 1.6; marker-end: url(#arrowhead-indigo); }
+    </style>
+    <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <polygon points="0 0, 8 4, 0 8" fill="#64748b"/>
+    </marker>
+    <marker id="arrowhead-blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <polygon points="0 0, 8 4, 0 8" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <polygon points="0 0, 8 4, 0 8" fill="#10b981"/>
+    </marker>
+    <marker id="arrowhead-indigo" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <polygon points="0 0, 8 4, 0 8" fill="#6366f1"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1180" height="920" fill="#f8fafc" rx="12"/>
+
+  <text x="40" y="42" class="title">Collab Code Editor  System Architecture</text>
+  <text x="40" y="64" class="subtitle">Project A: real-time collaboration, OT sync, version history, and AI-assisted RAG (local Docker Compose; nginx for deployment-style routing)</text>
+
+  <!-- Dev / CI layer -->
+  <rect x="40" y="88" width="1100" height="118" class="infra" rx="10"/>
+  <text x="56" y="112" class="layer-label">ORCHESTRATION &amp; DELIVERY</text>
+
+  <rect x="56" y="124" width="250" height="68" class="group" rx="8"/>
+  <text x="72" y="148" class="box-title">Docker Compose</text>
+  <text x="72" y="168" class="box-text-sm">docker-compose.yml  local dev (hot reload)</text>
+  <text x="72" y="184" class="box-text-sm">docker-compose.prod.yml  prod-style stack</text>
+
+  <rect x="326" y="124" width="220" height="68" class="group" rx="8"/>
+  <text x="342" y="148" class="box-title">Nginx reverse proxy</text>
+  <text x="342" y="168" class="box-text-sm">deploy/nginx  static client + API + /ws</text>
+  <text x="342" y="184" class="box-text-sm">TLS termination at platform edge (optional)</text>
+
+  <rect x="566" y="124" width="220" height="68" class="group" rx="8"/>
+  <text x="582" y="148" class="box-title">GitHub Actions CI</text>
+  <text x="582" y="168" class="box-text-sm">.github/workflows/ci.yml</text>
+  <text x="582" y="184" class="box-text-sm">client build · server check · AI py_compile</text>
+
+  <rect x="806" y="124" width="318" height="68" class="group" rx="8"/>
+  <text x="822" y="148" class="box-title">Services in Compose</text>
+  <text x="822" y="168" class="box-text-sm">client :3000 · server :5000 · ai-service :8000</text>
+  <text x="822" y="184" class="box-text-sm">postgres · redis · chroma_data volume</text>
+
+  <!-- Client layer -->
+  <rect x="40" y="228" width="360" height="248" class="client" rx="10"/>
+  <text x="56" y="252" class="layer-label">BROWSER / CLIENT</text>
+  <text x="56" y="278" class="box-title">React + Vite + Tailwind</text>
+  <text x="56" y="300" class="box-text">Port 3000 (dev) · served via nginx (prod-style)</text>
+
+  <rect x="56" y="318" width="328" height="44" class="group" rx="6"/>
+  <text x="72" y="340" class="box-text">CodeMirror 6 editor (collaborative editing UI)</text>
+  <text x="72" y="356" class="box-text-sm">Remote cursors · presence · version history UI</text>
+
+  <rect x="56" y="372" width="156" height="44" class="group" rx="6"/>
+  <text x="72" y="394" class="box-text">Axios REST client</text>
+  <text x="72" y="410" class="box-text-sm">JWT Bearer · /auth /documents /ai</text>
+
+  <rect x="228" y="372" width="156" height="44" class="group" rx="6"/>
+  <text x="244" y="394" class="box-text">Native WebSocket</text>
+  <text x="244" y="410" class="box-text-sm">ws client (not Socket.IO)</text>
+
+  <rect x="56" y="426" width="328" height="38" class="group" rx="6"/>
+  <text x="72" y="450" class="box-text-sm">AI panel: Index · Complete · Explain · Codebase Chat</text>
+
+  <!-- Node backend -->
+  <rect x="430" y="228" width="360" height="320" class="server" rx="10"/>
+  <text x="446" y="252" class="layer-label">NODE / EXPRESS BACKEND</text>
+  <text x="446" y="278" class="box-title">server (Express + ws)</text>
+  <text x="446" y="300" class="box-text">Port 5000 · JWT auth middleware</text>
+
+  <rect x="446" y="318" width="328" height="88" class="group" rx="6"/>
+  <text x="462" y="340" class="box-text">REST API</text>
+  <text x="462" y="358" class="box-text-sm">/auth  register, login, /auth/me</text>
+  <text x="462" y="374" class="box-text-sm">/documents  CRUD, collaborators, history, restore</text>
+  <text x="462" y="390" class="box-text-sm">/ai/*  proxy to FastAPI (index, complete, explain, chat)</text>
+
+  <rect x="446" y="416" width="328" height="116" class="group" rx="6"/>
+  <text x="462" y="438" class="box-text">WebSocket collaboration server</text>
+  <text x="462" y="456" class="box-text-sm">JOIN_DOCUMENT · OPERATION (OT) · OPERATION_ACK</text>
+  <text x="462" y="472" class="box-text-sm">REMOTE_OPERATION · CURSOR · presence events</text>
+  <text x="462" y="488" class="box-text-sm">ot.js transform · revision queue · snapshot every 50 ops</text>
+  <text x="462" y="504" class="box-text-sm">Redis pub/sub fan-out (multi-instance safe)</text>
+
+  <!-- AI service -->
+  <rect x="820" y="228" width="320" height="320" class="ai" rx="10"/>
+  <text x="836" y="252" class="layer-label">AI MICROSERVICE</text>
+  <text x="836" y="278" class="box-title">FastAPI (Python)</text>
+  <text x="836" y="300" class="box-text">Port 8000 · /health /index /complete /explain /chat</text>
+
+  <rect x="836" y="318" width="288" height="52" class="group" rx="6"/>
+  <text x="852" y="340" class="box-text">LangChain RAG pipeline</text>
+  <text x="852" y="356" class="box-text-sm">ChatOpenAI · OpenAIEmbeddings · mock mode optional</text>
+
+  <rect x="836" y="380" width="288" height="52" class="group" rx="6"/>
+  <text x="852" y="402" class="box-text">ChromaDB vector store</text>
+  <text x="852" y="418" class="box-text-sm">PersistentClient · per-codebase_id collections</text>
+
+  <rect x="836" y="442" width="288" height="52" class="group" rx="6"/>
+  <text x="852" y="464" class="box-text">Code chunking (tiktoken budgets)</text>
+  <text x="852" y="480" class="box-text-sm">Function/class-aware regex boundaries</text>
+
+  <rect x="836" y="504" width="288" height="28" class="group" rx="6"/>
+  <text x="852" y="522" class="box-text-sm">AI_MOCK_MODE=true for local demo without API key</text>
+
+  <!-- Data stores -->
+  <rect x="430" y="572" width="250" height="148" class="data-pg" rx="10"/>
+  <text x="446" y="596" class="layer-label">POSTGRESQL</text>
+  <text x="446" y="622" class="box-title">Relational data</text>
+  <text x="446" y="644" class="box-text-sm">users · documents (content)</text>
+  <text x="446" y="660" class="box-text-sm">document_collaborators (read/write)</text>
+  <text x="446" y="676" class="box-text-sm">document_snapshots (version history)</text>
+  <text x="446" y="696" class="box-text-sm">init-db via server npm script</text>
+
+  <rect x="710" y="572" width="250" height="148" class="data-redis" rx="10"/>
+  <text x="726" y="596" class="layer-label">REDIS</text>
+  <text x="726" y="622" class="box-title">Realtime &amp; scale-out</text>
+  <text x="726" y="644" class="box-text-sm">doc:{id}:ops  OT operation history (list)</text>
+  <text x="726" y="660" class="box-text-sm">doc:{id}:presence  TTL presence + cursors</text>
+  <text x="726" y="676" class="box-text-sm">collab:websocket:events  pub/sub channel</text>
+  <text x="726" y="696" class="box-text-sm">Echo prevention via serverInstanceId</text>
+
+  <!-- OpenAI external -->
+  <rect x="820" y="572" width="320" height="88" class="external" rx="10"/>
+  <text x="836" y="596" class="layer-label">OPENAI (REAL MODE)</text>
+  <text x="836" y="622" class="box-title">gpt-4o-mini · text-embedding-3-small</text>
+  <text x="836" y="644" class="box-text-sm">Used when AI_MOCK_MODE=false and OPENAI_API_KEY is set</text>
+
+  <!-- Arrows: client to server -->
+  <path d="M 400 394 L 428 394" class="arrow-accent"/>
+  <text x="404" y="386" class="arrow-label">REST</text>
+
+  <path d="M 384 410 L 428 470" class="arrow-ws"/>
+  <text x="388" y="448" class="arrow-label">WebSocket</text>
+
+  <!-- nginx to client/server (prod) -->
+  <path d="M 436 156 L 220 228" class="arrow"/>
+  <text x="300" y="188" class="arrow-label">prod: reverse proxy</text>
+
+  <!-- server to postgres -->
+  <path d="M 555 548 L 555 570" class="arrow"/>
+  <text x="562" y="562" class="arrow-label">SQL</text>
+
+  <!-- server to redis -->
+  <path d="M 650 548 L 780 572" class="arrow"/>
+  <text x="700" y="558" class="arrow-label">Redis</text>
+
+  <!-- server to AI -->
+  <path d="M 790 400 L 818 400" class="arrow-ai"/>
+  <text x="794" y="392" class="arrow-label">HTTP proxy /ai</text>
+
+  <!-- AI to ChromaDB (internal - same box, small loop) -->
+  <path d="M 980 370 L 1000 370 L 1000 378 L 980 378" class="arrow-ai"/>
+
+  <!-- AI to OpenAI -->
+  <path d="M 980 548 L 980 570" class="arrow"/>
+  <text x="988" y="562" class="arrow-label">API</text>
+
+  <!-- Docker wraps hint -->
+  <path d="M 180 192 L 180 228" class="arrow" stroke-dasharray="4 3"/>
+  <path d="M 610 192 L 610 228" class="arrow" stroke-dasharray="4 3"/>
+  <path d="M 980 192 L 980 228" class="arrow" stroke-dasharray="4 3"/>
+
+  <!-- Legend -->
+  <rect x="40" y="748" width="1100" height="148" class="group" rx="10"/>
+  <text x="56" y="774" class="box-title">Legend &amp; notes</text>
+  <text x="56" y="798" class="box-text">" Local dev: browser talks directly to server :5000 (REST + WebSocket) and optional AI :8000 via Node proxy.</text>
+  <text x="56" y="818" class="box-text">" Production-style: nginx terminates HTTP, serves built React app, proxies /auth, /documents, /ai, /health, and upgrades /ws to the Node server.</text>
+  <text x="56" y="838" class="box-text">" Collaboration: client sends insert/delete ops; server OT-transforms against Redis history, persists to PostgreSQL, broadcasts via Redis pub/sub.</text>
+  <text x="56" y="858" class="box-text">" No live public deployment URL is claimed in this diagram  configure hosting separately (see DEPLOYMENT.md).</text>
+  <text x="56" y="878" class="box-text-sm">Repository: client/ · server/ · ai-service/ · deploy/ · docs/ · .github/workflows/</text>
+</svg>

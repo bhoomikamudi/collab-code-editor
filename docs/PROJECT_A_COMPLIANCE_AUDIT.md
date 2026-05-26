@@ -40,7 +40,7 @@
 | Nginx reverse proxy for deployment | **Partial** | `deploy/nginx/default.conf`, `deploy/nginx/Dockerfile`, `docker-compose.prod.yml` nginx service | Config exists; **not the same as a proven public deployment** |
 | GitHub Actions CI | **Complete** | `.github/workflows/ci.yml` — frontend build, backend `npm run check`, AI `py_compile` | No E2E or Docker CI job |
 | Deployment on Railway or AWS EC2 | **Missing** | No `railway.json`, Terraform, EC2 user-data, or host-specific docs beyond generic `DEPLOYMENT.md` | Only deployment-**ready** Compose/nginx; no Railway/EC2 runbook or proof |
-| README with architecture diagram | **Partial** | `README.md` — ASCII/text diagrams in markdown | Spec asks for diagram in README; **no committed image diagram** (`docs/assets/` absent; `docs/SCREENSHOTS.md` is a checklist only) |
+| README with architecture diagram | **Complete** | `README.md` — embedded `docs/assets/architecture.svg` + ASCII/text diagrams | SVG complements existing text diagram; no live deployment URL in asset |
 | Screenshots / demo GIF in repo | **Missing** | `docs/SCREENSHOTS.md` lists desired assets; **0 image/gif/video files** in repository (glob `*.{png,gif,mp4}` → none) | Capture and commit assets or link externally |
 | 3-minute demo video | **Needs Manual Proof** | `docs/DEMO_SCRIPT.md` provides script only | No video file or hosted link in repo |
 | Working demo URL (public) | **Missing** | README states no public deployment unless user hosts; no production URL in docs | Deploy to Railway/EC2/etc. and add real URL to README |
@@ -261,7 +261,7 @@ Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (regi
 | Deliverable | In repo? |
 |-------------|----------|
 | Text architecture diagram | Yes (`README.md`) |
-| Image architecture diagram | No |
+| Image architecture diagram | Yes (`docs/assets/architecture.svg`, linked from README) |
 | Demo GIF | No (checklist only) |
 | Demo video | No |
 | Live URL | No |
@@ -398,7 +398,7 @@ See also [DEPLOYMENT.md](../DEPLOYMENT.md#real-openai-mode-validation-local).
 
 ### Documentation / media tasks
 
-1. **Add image architecture diagram** to README (`docs/assets/architecture.png`).
+1. ~~**Add image architecture diagram** to README~~ — done (`docs/assets/architecture.svg`).
 2. **Capture demo GIF** — two-tab sync (see `docs/SCREENSHOTS.md`).
 3. **Record 3-minute demo video** — follow `docs/DEMO_SCRIPT.md`; host (YouTube unlisted / Loom).
 4. **Embed GIF + video + live URL** in README (no fake URLs).

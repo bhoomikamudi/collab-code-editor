@@ -41,7 +41,7 @@
 | GitHub Actions CI | **Complete** | `.github/workflows/ci.yml` — frontend build, backend `npm run check`, AI `py_compile` | No E2E or Docker CI job |
 | Deployment on Railway or AWS EC2 | **Missing** | No `railway.json`, Terraform, EC2 user-data, or host-specific docs beyond generic `DEPLOYMENT.md` | Only deployment-**ready** Compose/nginx; no Railway/EC2 runbook or proof |
 | README with architecture diagram | **Complete** | `README.md` — embedded `docs/assets/architecture.svg` + ASCII/text diagrams | SVG complements existing text diagram; no live deployment URL in asset |
-| Screenshots / demo GIF in repo | **Missing** | `docs/SCREENSHOTS.md` lists desired assets; **0 image/gif/video files** in repository (glob `*.{png,gif,mp4}` → none) | Capture and commit assets or link externally |
+| Screenshots / demo GIF in repo | **Prepared** | `docs/assets/screenshots/` + [SCREENSHOTS.md](SCREENSHOTS.md) capture checklist; README **Demo Screenshots** placeholder; **0 PNG/GIF files committed yet** | Capture real assets from local Docker demo; commit files and uncomment README embeds |
 | 3-minute demo video | **Needs Manual Proof** | `docs/DEMO_SCRIPT.md` provides script only | No video file or hosted link in repo |
 | Working demo URL (public) | **Missing** | README states no public deployment unless user hosts; no production URL in docs | Deploy to Railway/EC2/etc. and add real URL to README |
 | Two browser tabs, same document, conflict handling | **Partial** | Server OT in `server/src/otEngine.js` (ot.js); client `collabOperations.js` + queued WebSocket ops; **manual validation** — insert, backspace delete, **full-document replace** sync to PostgreSQL; revision counter increments | Simultaneous two-tab typing not proven; partial-line replace not exercised in browser automation (CodeMirror selection not set by MCP keyboard) |
@@ -262,7 +262,8 @@ Test users: `manual-a-1779747584@test.com`, `manual-b-1779747584@test.com` (regi
 |-------------|----------|
 | Text architecture diagram | Yes (`README.md`) |
 | Image architecture diagram | Yes (`docs/assets/architecture.svg`, linked from README) |
-| Demo GIF | No (checklist only) |
+| Demo GIF | **Prepared** (no `03-two-user-collaboration.gif` committed yet) |
+| Screenshot PNGs | **Prepared** (`docs/assets/screenshots/` + filenames; no captures committed) |
 | Demo video | No |
 | Live URL | No |
 
@@ -399,7 +400,7 @@ See also [DEPLOYMENT.md](../DEPLOYMENT.md#real-openai-mode-validation-local).
 ### Documentation / media tasks
 
 1. ~~**Add image architecture diagram** to README~~ — done (`docs/assets/architecture.svg`).
-2. **Capture demo GIF** — two-tab sync (see `docs/SCREENSHOTS.md`).
+2. **Capture demo GIF** — `docs/assets/screenshots/03-two-user-collaboration.gif` (see [SCREENSHOTS.md](SCREENSHOTS.md)).
 3. **Record 3-minute demo video** — follow `docs/DEMO_SCRIPT.md`; host (YouTube unlisted / Loom).
 4. **Embed GIF + video + live URL** in README (no fake URLs).
 5. **Update this audit** after each milestone until all rows are Complete or explicitly waived.

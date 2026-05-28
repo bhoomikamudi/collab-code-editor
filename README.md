@@ -24,6 +24,7 @@ Built as a portfolio-grade **Project A** system: separate React frontend, Node/E
 - [GitHub Actions CI](#github-actions-ci)
 - [Deployment](#deployment)
 - [Documentation](#documentation)
+- [Demo Screenshots](#demo-screenshots)
 - [Honest limitations](#honest-limitations)
 - [Future improvements](#future-improvements)
 
@@ -382,6 +383,40 @@ docker compose -f docker-compose.prod.yml run --rm server npm run init-db
 | [docs/API.md](./docs/API.md) | REST and WebSocket reference |
 | [docs/DEMO_SCRIPT.md](./docs/DEMO_SCRIPT.md) | 3-minute recruiter demo script |
 | [docs/SCREENSHOTS.md](./docs/SCREENSHOTS.md) | Screenshot/GIF capture checklist |
+
+---
+
+## Demo Screenshots
+
+> **Status:** Screenshot and GIF files are **not in the repository yet**. The folder structure and capture checklist are prepared; add real captures from a local Docker demo (see [docs/SCREENSHOTS.md](./docs/SCREENSHOTS.md)).
+
+Save assets under `docs/assets/screenshots/` with these names:
+
+| File | Description |
+|------|-------------|
+| `01-login.png` | Landing / login screen |
+| `02-editor-dashboard.png` | Editor workspace + collaborator sharing UI |
+| `03-two-user-collaboration.gif` | Two-user real-time sync (GIF) |
+| `04-remote-cursor.png` | Remote cursor / selection indicator |
+| `05-ai-rag-panel.png` | AI assistant panel + RAG references |
+| `06-version-history.png` | Version history and/or restore |
+| `07-ci-passing.png` | GitHub Actions CI passing |
+
+**Already available:** system architecture diagram — [docs/assets/architecture.svg](./docs/assets/architecture.svg) (embedded in [Architecture](#architecture) above).
+
+After capture, embed images here (example — uncomment when files exist):
+
+```markdown
+<!-- Uncomment when docs/assets/screenshots/01-login.png exists -->
+<!-- ![Login](docs/assets/screenshots/01-login.png) -->
+
+<!-- ![Editor dashboard](docs/assets/screenshots/02-editor-dashboard.png) -->
+<!-- ![Two-user collaboration](docs/assets/screenshots/03-two-user-collaboration.gif) -->
+<!-- ![Remote cursor](docs/assets/screenshots/04-remote-cursor.png) -->
+<!-- ![AI and RAG panel](docs/assets/screenshots/05-ai-rag-panel.png) -->
+<!-- ![Version history](docs/assets/screenshots/06-version-history.png) -->
+<!-- ![CI passing](docs/assets/screenshots/07-ci-passing.png) -->
+```
 
 ---
 

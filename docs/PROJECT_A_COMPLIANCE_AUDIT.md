@@ -6,6 +6,8 @@
 
 **Summary:** The project is a strong, demo-ready **local** full-stack prototype. Most core engineering requirements are implemented. **AI/RAG stack fidelity was improved** on branch `phase3-real-openai-langchain-rag` (LangChain embeddings + chat, tiktoken chunking, `AI_MOCK_MODE`). Remaining gaps are concentrated in **live deployment proof** and **portfolio media** (GIF, video, public URL).
 
+> **Upgraded spec:** For the stricter **Project 3 — Production Real-Time Distributed System** requirements (TypeScript, Next.js, C++ N-API OT, gRPC, Redis Cluster, K8s, observability, Cypress, etc.), see **[UPGRADED_PROJECT3_COMPLIANCE_AUDIT.md](./UPGRADED_PROJECT3_COMPLIANCE_AUDIT.md)**. That audit is independent; Project A status in this file is unchanged.
+
 ---
 
 ## Compliance table

@@ -50,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build TypeScript helpers
+        run: npm run build:ts
+
       - name: Check backend syntax
         run: npm run check
 

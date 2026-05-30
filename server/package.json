@@ -4,11 +4,14 @@
   "description": "Node.js backend for real-time collaborative code editor",
   "main": "src/index.js",
   "scripts": {
-    "dev": "nodemon src/index.js",
+    "build:ts": "tsc -p tsconfig.build.json",
+    "predev": "npm run build:ts",
+    "dev": "nodemon --watch src --ext ts,js --exec \"npm run build:ts && node src/index.js\"",
+    "prestart": "npm run build:ts",
     "start": "node src/index.js",
     "init-db": "node src/initDb.js",
     "test-ws": "node src/testWebSocket.js",
-    "check": "node --check src/index.js && node --check src/websocketServer.js && node --check src/pubsub.js && node --check src/documentAccess.js && node --check src/documentRoutes.js && node --check src/aiRoutes.js",
+    "check": "node --check src/index.js && node --check src/auth.js && node --check src/websocketServer.js && node --check src/pubsub.js && node --check src/documentAccess.js && node --check src/documentRoutes.js && node --check src/aiRoutes.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

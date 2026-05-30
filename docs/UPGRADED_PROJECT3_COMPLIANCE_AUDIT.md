@@ -66,7 +66,7 @@ collab-code-editor/
 | Requirement | Expected by upgraded Project 3 | Current repo status | Verdict | Recommended next action |
 |-------------|-------------------------------|---------------------|---------|-------------------------|
 | **Real-time collaborative editor** | Production-grade multi-user editing | CodeMirror + ws + OT prototype; manual browser validation partial | **Partial** | Harden OT + E2E before calling production-grade |
-| **Node.js TypeScript backend** | Gateway/API/WS in TypeScript | `server/tsconfig.json` (strict, `allowJs`); `server/src/types.ts` shared types; `npm run typecheck` in CI; runtime still **JavaScript** (`src/*.js`) | **Partial** | Migrate auth/config → document routes → WebSocket/OT incrementally |
+| **Node.js TypeScript backend** | Gateway/API/WS in TypeScript | `tsconfig.json` + `build:ts`; **`auth.ts` + `config.ts` migrated** (compiled to `dist/`; `auth.js` CJS bridge); runtime routes/WS still JavaScript | **Partial** | Migrate document access/routes next, then WebSocket/OT |
 | **C++ OT module via Node N-API** | Native high-performance OT engine | `server/src/otEngine.js` uses npm `ot` in JavaScript | **Missing** | Phase 4B: design C++ OT + N-API bindings |
 | **Redis Cluster** | Cluster for pub/sub + op history at scale | Single `redis:7-alpine` in both compose files | **Missing** | Phase 4G: Redis Cluster config or managed Redis; update clients |
 | **Redis pub/sub** | Cross-instance event fan-out | `server/src/pubsub.js` — channel `collab:websocket:events` on single Redis | **Partial** | Extend after Cluster; multi-instance not load-tested |
@@ -121,7 +121,7 @@ collab-code-editor/
 
 | Upgraded requirement | What the repo has instead | Verdict |
 |---------------------|---------------------------|---------|
-| TypeScript backend | JavaScript runtime + TS tooling/types (`types.ts`, `typecheck`); full migration pending | **Partial** |
+| TypeScript backend | JS runtime for most modules; **auth/config in TypeScript** (`auth.ts`, `config.ts` → `dist/`); full migration pending | **Partial** |
 | Next.js frontend | React + Vite (`client/`) | **Missing** |
 | C++ N-API OT | JavaScript `ot` npm (`otEngine.js`) | **Missing** |
 | Redis Cluster | Single Redis container | **Missing** |
@@ -147,8 +147,8 @@ Small, Cursor-friendly tasks grouped by phase. **Prompt estimates** = focused ag
 
 | # | Task | Depends on |
 |---|------|------------|
-| 1 | Add `tsconfig` + TypeScript to `server/`; convert `index.js`, `auth.js` | **Partial** — `tsconfig.json`, `types.ts`, CI `typecheck` done; runtime JS unchanged |
-| 2 | Convert WebSocket + OT modules to TS with types for ops/messages | 1 |
+| 1 | Add `tsconfig` + TypeScript to `server/`; convert `index.js`, `auth.js` | **Partial** — `auth.ts`, `config.ts`, `build:ts`, CI build step done |
+| 2 | Convert WebSocket + OT modules to TS with types for ops/messages | — |
 | 3 | Convert document/auth routes and middleware to TS | 1 |
 | 4 | Scaffold Next.js App Router + TypeScript in `frontend/` (or migrate `client/`) | — |
 | 5 | Port CodeMirror editor + collab hooks to Next.js client components | 4 |
@@ -258,8 +258,8 @@ Phases can overlap (e.g. 4E after 4A; 4C before 4G). **Minimum viable Project 3 
 
 ## Suggested next prompts (immediate)
 
-1. **Phase 4A-1 (continued):** Migrate `auth.js` + config helpers to TypeScript; keep `allowJs` until WebSocket/OT modules move last.  
-2. **Phase 4C-1:** Draft `proto/ai.proto` and document gRPC migration from `aiRoutes.js`.  
+1. **Phase 4A-2:** Migrate `documentAccess.js` + `documentRoutes.js` to TypeScript.
+2. **Phase 4C-1:** Draft `proto/ai.proto` and document gRPC migration from `aiRoutes.js`.
 3. **Phase 4F-1:** Add Cypress with one login + open-document smoke against Docker Compose.  
 4. **Phase 4H-1:** Capture `01-login.png` and `03-two-user-collaboration.gif` per [SCREENSHOTS.md](./SCREENSHOTS.md).
 

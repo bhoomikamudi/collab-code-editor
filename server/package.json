@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "init-db": "node src/initDb.js",
     "test-ws": "node src/testWebSocket.js",
-    "check": "node --check src/index.js && node --check src/websocketServer.js && node --check src/pubsub.js && node --check src/documentAccess.js && node --check src/documentRoutes.js && node --check src/aiRoutes.js"
+    "check": "node --check src/index.js && node --check src/websocketServer.js && node --check src/pubsub.js && node --check src/documentAccess.js && node --check src/documentRoutes.js && node --check src/aiRoutes.js",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -22,6 +23,12 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.1",
+    "@types/ws": "^8.5.13",
+    "nodemon": "^3.1.4",
+    "typescript": "^5.7.2"
   }
 }

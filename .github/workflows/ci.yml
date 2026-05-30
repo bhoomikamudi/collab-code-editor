@@ -53,6 +53,9 @@ jobs:
       - name: Check backend syntax
         run: npm run check
 
+      - name: Typecheck backend
+        run: npm run typecheck
+
   ai-service:
     name: AI service syntax check
     runs-on: ubuntu-latest
